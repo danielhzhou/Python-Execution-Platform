@@ -30,14 +30,14 @@ const server = Bun.serve({
     },
   },
   websocket: {
-    open: (ws) => {
+    open: () => {
       console.log("WebSocket connection opened");
     },
-    message: (ws, message) => {
+    message: (_, message) => {
       // Forward WebSocket messages to backend
       console.log("WebSocket message:", message);
     },
-    close: (ws) => {
+    close: () => {
       console.log("WebSocket connection closed");
     },
   },
@@ -48,4 +48,4 @@ const server = Bun.serve({
 });
 
 console.log(`🚀 Frontend server running at http://localhost:${server.port}`);
-console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`); 
+console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);    
