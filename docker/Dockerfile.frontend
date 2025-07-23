@@ -1,0 +1,25 @@
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lockb* ./
+RUN bun install --frozen-lockfile
+
+# Copy source code
+COPY . .
+
+# Development stage
+FROM base AS development
+EXPOSE 3000
+CMD ["bun", "--hot", "./index.ts"]
+
+# Build stage
+FROM base AS build
+RUN bun build index.html --outdir dist
+
+# Production stage
+FROM oven/bun:1-slim AS production
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+EXPOSE 3000
+CMD ["bun", "run", "dist/index.js"] 
