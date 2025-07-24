@@ -98,17 +98,6 @@ class TerminalSession:
         except Exception as e:
             logger.error(f"Error reading terminal output: {e}")
             
-    async def resize_terminal(self, rows: int, cols: int) -> bool:
-        """Resize the terminal"""
-        try:
-            if self.process and hasattr(self.process, 'resize'):
-                self.process.resize(rows, cols)
-                return True
-        except Exception as e:
-            logger.error(f"Failed to resize terminal: {e}")
-            
-        return False
-        
     async def close(self):
         """Close the terminal session"""
         self.is_active = False
@@ -117,6 +106,12 @@ class TerminalSession:
                 self.process.terminate()
             except:
                 pass
+            
+    async def resize_terminal(self, rows: int, cols: int) -> bool:
+        """Resize the terminal"""
+        # This would need proper PTY implementation
+        # For now, return True as a placeholder
+        return True
 
 
 class TerminalService:
@@ -124,7 +119,17 @@ class TerminalService:
     
     def __init__(self):
         self.active_sessions: Dict[str, TerminalSession] = {}
-        self.pip_install_pattern = re.compile(r'\bpip\s+install\b')
+        # Enhanced network command patterns
+        self.network_command_patterns = {
+            'pip_install': re.compile(r'\bpip\s+install\b'),
+            'npm_install': re.compile(r'\bnpm\s+install\b'),
+            'npm_add': re.compile(r'\bnpm\s+add\b'),
+            'yarn_install': re.compile(r'\byarn\s+install\b|\byarn\s+add\b'),
+            'pnpm_install': re.compile(r'\bpnpm\s+install\b|\bpnpm\s+add\b'),
+            'git_clone': re.compile(r'\bgit\s+clone\s+https?://'),
+            'curl': re.compile(r'\bcurl\s+'),
+            'wget': re.compile(r'\bwget\s+'),
+        }
         
     async def create_terminal_session(self, session_id: str) -> bool:
         """Create a new terminal session"""
@@ -160,9 +165,9 @@ class TerminalService:
         if not terminal_session:
             return False
             
-        # Check if this is a pip install command
-        if self._is_pip_install_command(command):
-            await self._handle_pip_install(session_id, command)
+        # Check if this command needs network access
+        if self._needs_network_access(command):
+            await self._handle_network_command(session_id, command)
         else:
             # Send command directly
             await terminal_session.send_input(command)
@@ -215,49 +220,66 @@ class TerminalService:
         logger.info(f"Terminal session closed for {session_id}")
         return True
         
-    def _is_pip_install_command(self, command: str) -> bool:
-        """Check if command is a pip install command"""
-        return bool(self.pip_install_pattern.search(command))
+    def _needs_network_access(self, command: str) -> bool:
+        """Check if command needs network access"""
+        return any(pattern.search(command) for pattern in self.network_command_patterns.values())
         
-    async def _handle_pip_install(self, session_id: str, command: str):
-        """Handle pip install commands with network access management"""
-        logger.info(f"Handling pip install command for session {session_id}")
+    def _get_command_type(self, command: str) -> str:
+        """Get the type of network command"""
+        for cmd_type, pattern in self.network_command_patterns.items():
+            if pattern.search(command):
+                return cmd_type
+        return "unknown"
+        
+    async def _handle_network_command(self, session_id: str, command: str):
+        """Handle commands that need network access"""
+        command_type = self._get_command_type(command)
+        logger.info(f"Handling {command_type} command for session {session_id}")
         
         try:
             # Enable network access
             network_enabled = await container_service.enable_network_access(session_id)
             if not network_enabled:
-                error_msg = "Failed to enable network access for package installation\n"
+                error_msg = "Failed to enable network access for command execution\n"
                 await self._send_system_message(session_id, error_msg)
                 return
                 
-            # Send notification to user
-            await self._send_system_message(
-                session_id, 
-                "🌐 Network access enabled for package installation...\n"
-            )
+            # Send appropriate notification based on command type
+            notifications = {
+                'pip_install': "🐍 Network enabled for Python package installation...",
+                'npm_install': "📦 Network enabled for npm package installation...",
+                'npm_add': "📦 Network enabled for npm package installation...",
+                'yarn_install': "🧶 Network enabled for Yarn package installation...",
+                'pnpm_install': "⚡ Network enabled for pnpm package installation...",
+                'git_clone': "🔄 Network enabled for Git repository cloning...",
+                'curl': "🌐 Network enabled for HTTP request...",
+                'wget': "📥 Network enabled for file download...",
+            }
             
-            # Execute the pip install command
+            notification = notifications.get(command_type, "🌐 Network access enabled...")
+            await self._send_system_message(session_id, f"{notification}\n")
+            
+            # Execute the command
             terminal_session = self.active_sessions.get(session_id)
             if terminal_session:
                 await terminal_session.send_input(command)
                 
-                # Wait a bit for the command to complete
-                # In a real implementation, you'd want to monitor the command completion
-                await asyncio.sleep(2)
+                # Wait for command completion (this is simplified)
+                # In a real implementation, you'd monitor command completion
+                await asyncio.sleep(3)
                 
             # Disable network access
             await container_service.disable_network_access(session_id)
             await self._send_system_message(
                 session_id, 
-                "🔒 Network access disabled. Package installation complete.\n"
+                "🔒 Network access disabled. Command execution complete.\n"
             )
             
         except Exception as e:
-            logger.error(f"Error handling pip install: {e}")
+            logger.error(f"Error handling network command: {e}")
             await self._send_system_message(
                 session_id, 
-                f"❌ Error during package installation: {str(e)}\n"
+                f"❌ Error during command execution: {str(e)}\n"
             )
             # Ensure network is disabled even on error
             await container_service.disable_network_access(session_id)

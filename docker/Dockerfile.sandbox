@@ -5,16 +5,35 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV TERM=xterm-256color
 
-# Install system dependencies
+# Install system dependencies and development tools
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    wget \
     git \
     nano \
     vim \
     tree \
     htop \
     procps \
+    make \
+    gcc \
+    g++ \
+    unzip \
+    zip \
+    jq \
+    sqlite3 \
+    ca-certificates \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js using NodeSource repository (more reliable)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g npm@latest \
+    && npm install -g yarn pnpm \
+    && node --version \
+    && npm --version \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with home directory
@@ -34,9 +53,13 @@ RUN pip install --no-cache-dir \
     pytest==7.4.3 \
     black==23.11.0 \
     flake8==6.1.0 \
-    mypy==1.7.1
+    mypy==1.7.1 \
+    flask==3.0.0 \
+    fastapi==0.109.0 \
+    sqlalchemy==2.0.25 \
+    pydantic==2.5.3
 
-# Create workspace directory
+# Create workspace directory and set permissions
 RUN mkdir -p /workspace && chown pyuser:pyuser /workspace
 
 # Set working directory
@@ -45,11 +68,19 @@ WORKDIR /workspace
 # Switch to non-root user
 USER pyuser
 
+# Set up Node.js environment for user
+RUN mkdir -p /home/pyuser/.npm-global \
+    && npm config set prefix '/home/pyuser/.npm-global' \
+    && echo 'export PATH=/home/pyuser/.npm-global/bin:$PATH' >> /home/pyuser/.bashrc
+
 # Add welcome message to bashrc
-RUN echo 'echo "🐍 Python Execution Environment Ready!"' >> /home/pyuser/.bashrc && \
-    echo 'echo "📦 Pre-installed: pandas, scipy, numpy, matplotlib, scikit-learn"' >> /home/pyuser/.bashrc && \
-    echo 'echo "💻 Available: python, pip, git, nano, vim"' >> /home/pyuser/.bashrc && \
+RUN echo 'echo "🐍 Python + Node.js Development Environment Ready!"' >> /home/pyuser/.bashrc && \
+    echo 'echo "🐍 Python: $(python --version)"' >> /home/pyuser/.bashrc && \
+    echo 'echo "📦 Node.js: $(node --version) | npm: $(npm --version)"' >> /home/pyuser/.bashrc && \
+    echo 'echo "📚 Pre-installed: pandas, numpy, matplotlib, scikit-learn, flask, fastapi"' >> /home/pyuser/.bashrc && \
+    echo 'echo "🛠️  Available: python, pip, node, npm, yarn, git, nano, vim, curl, wget"' >> /home/pyuser/.bashrc && \
     echo 'echo "📁 Working directory: /workspace"' >> /home/pyuser/.bashrc && \
+    echo 'echo "💡 Network access auto-enabled for: pip install, npm install, yarn install"' >> /home/pyuser/.bashrc && \
     echo 'echo ""' >> /home/pyuser/.bashrc
 
 # Default command
