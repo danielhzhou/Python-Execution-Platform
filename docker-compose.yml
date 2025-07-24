@@ -27,26 +27,14 @@ services:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - JWT_SECRET=${JWT_SECRET}
-      - REDIS_URL=redis://redis:6379
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./backend:/app
       - user_data:/app/user_data
-    depends_on:
-      - redis
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
 
 volumes:
   user_data:
-  redis_data:
 
 networks:
   default:
