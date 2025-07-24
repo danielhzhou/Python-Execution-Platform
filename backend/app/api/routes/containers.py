@@ -12,14 +12,9 @@ from app.models.container import (
 )
 from app.services.container_service import container_service
 from app.services.websocket_service import websocket_service
+from app.core.auth import get_current_user_id, AuthUser, get_current_user
 
 router = APIRouter()
-
-
-# Temporary user authentication - replace with proper auth
-async def get_current_user_id() -> str:
-    """Get current user ID - placeholder for proper authentication"""
-    return "user-123"  # TODO: Replace with actual JWT auth
 
 
 @router.post("/create", response_model=ContainerResponse)
@@ -27,11 +22,12 @@ async def create_container(
     request: ContainerCreateRequest,
     user_id: str = Depends(get_current_user_id)
 ):
-    """Create a new container for the user"""
+    """Create a new container for the authenticated user"""
     try:
         # Create container
         session = await container_service.create_container(
             user_id=user_id,
+            project_id=request.project_id,
             project_name=request.project_name,
             initial_files=request.initial_files
         )
@@ -57,7 +53,7 @@ async def get_container_info(
     session_id: str,
     user_id: str = Depends(get_current_user_id)
 ):
-    """Get container information"""
+    """Get container information for authenticated user"""
     # Verify user owns this session
     session = container_service.container_sessions.get(session_id)
     if not session or session.user_id != user_id:
@@ -75,7 +71,7 @@ async def terminate_container(
     session_id: str,
     user_id: str = Depends(get_current_user_id)
 ):
-    """Terminate a container"""
+    """Terminate a container for authenticated user"""
     # Verify user owns this session
     session = container_service.container_sessions.get(session_id)
     if not session or session.user_id != user_id:
@@ -143,7 +139,7 @@ async def get_session_stats(
 async def list_user_containers(
     user_id: str = Depends(get_current_user_id)
 ):
-    """List all containers for the current user"""
+    """List all containers for the authenticated user"""
     user_sessions = []
     
     for session_id, session in container_service.container_sessions.items():

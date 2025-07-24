@@ -2,28 +2,21 @@
 Application configuration settings
 """
 from typing import List
-from pydantic import validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings"""
     
-    # Database
-    DATABASE_URL: str = "postgresql://user:password@localhost:5432/pyexec_dev"
+    # Database (Supabase Postgres)
+    DATABASE_URL: str
     
-    # Supabase
-    SUPABASE_URL: str = "https://placeholder.supabase.co"
-    SUPABASE_ANON_KEY: str = "placeholder_anon_key"
-    SUPABASE_SERVICE_KEY: str = "placeholder_service_key"
-    
-    # JWT
-    JWT_SECRET: str = "your-super-secret-jwt-key-here"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 30
-    
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379"
+    # Supabase Configuration
+    SUPABASE_URL: str
+    SUPABASE_ANON_KEY: str
+    SUPABASE_SERVICE_KEY: str
+    SUPABASE_JWT_SECRET: str  # For JWT verification
     
     # Docker & Container Management
     DOCKER_HOST: str = "unix:///var/run/docker.sock"
@@ -53,7 +46,8 @@ class Settings(BaseSettings):
     MAX_CONTAINER_LIFETIME_MINUTES: int = 30
     MAX_CONTAINERS_PER_USER: int = 1
     
-    @validator("CORS_ORIGINS", pre=True)
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
     def assemble_cors_origins(cls, v):
         if isinstance(v, str):
             return [i.strip() for i in v.split(",")]
@@ -61,7 +55,8 @@ class Settings(BaseSettings):
             return v
         raise ValueError("CORS_ORIGINS must be a string or list")
     
-    @validator("ALLOWED_DOMAINS", pre=True)
+    @field_validator("ALLOWED_DOMAINS", mode="before")
+    @classmethod
     def assemble_allowed_domains(cls, v):
         if isinstance(v, str):
             return [i.strip() for i in v.split(",")]
@@ -69,9 +64,10 @@ class Settings(BaseSettings):
             return v
         raise ValueError("ALLOWED_DOMAINS must be a string or list")
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": True
+    }
 
 
 # Global settings instance

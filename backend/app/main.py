@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
+from app.core.supabase import create_db_tables
 from app.api import api_router
 from app.services.container_service import container_service
 
@@ -25,6 +26,16 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     logger.info("Starting Python Execution Platform")
+    
+    # Initialize database tables
+    try:
+        create_db_tables()
+        logger.info("Database tables initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        # Don't fail startup - tables might already exist
+    
+    # Start container service
     await container_service.start()
     
     yield
