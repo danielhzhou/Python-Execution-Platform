@@ -19,9 +19,8 @@ class TestContainerEndpoints:
             mock_session = Mock()
             mock_session.id = "test-session-123"
             mock_session.container_id = "test-container-456"
-            mock_session.status = ContainerStatus.RUNNING.value
-            mock_session.project_name = "test-project"
-            mock_service.create_container.return_value = mock_session
+            mock_session.status = ContainerStatus.RUNNING
+            mock_service.create_container = AsyncMock(return_value=mock_session)
             
             response = test_client.post(
                 "/api/v1/containers/create",
@@ -33,6 +32,13 @@ class TestContainerEndpoints:
             assert data["session_id"] == "test-session-123"
             assert data["container_id"] == "test-container-456"
             assert data["status"] == ContainerStatus.RUNNING.value
+            
+            # Verify the service was called with correct parameters
+            mock_service.create_container.assert_called_once_with(
+                user_id="user-123",
+                project_name="test-project",
+                initial_files={"main.py": "print('Hello, World!')"}
+            )
 
     @pytest.mark.unit
     def test_create_container_failure(self, test_client, api_test_data):
@@ -55,19 +61,29 @@ class TestContainerEndpoints:
         session_id = "test-session-123"
         
         with patch('app.api.routes.containers.container_service') as mock_service:
+            # Mock the session lookup
+            mock_session = Mock()
+            mock_session.user_id = "user-123"
+            mock_service.container_sessions = {session_id: mock_session}
+            
+            # Mock the container info with all required fields
+            from datetime import datetime
             mock_info = Mock()
-            mock_info.session_id = session_id
-            mock_info.container_id = "test-container-456"
-            mock_info.status = ContainerStatus.RUNNING.value
+            mock_info.id = session_id
+            mock_info.status = ContainerStatus.RUNNING
+            mock_info.image = "python-execution-sandbox:latest"
+            mock_info.created_at = datetime.now()
+            mock_info.last_activity = datetime.now()
             mock_info.cpu_usage = 25.5
             mock_info.memory_usage = 256 * 1024 * 1024
-            mock_service.get_container_info.return_value = mock_info
+            mock_info.network_enabled = False
+            mock_service.get_container_info = AsyncMock(return_value=mock_info)
             
-            response = test_client.get(f"/api/v1/containers/{session_id}")
+            response = test_client.get(f"/api/v1/containers/{session_id}/info")
             
             assert response.status_code == 200
             data = response.json()
-            assert data["session_id"] == session_id
+            assert data["id"] == session_id
             assert data["cpu_usage"] == 25.5
 
     @pytest.mark.unit
@@ -90,13 +106,19 @@ class TestContainerEndpoints:
         session_id = "test-session-123"
         
         with patch('app.api.routes.containers.container_service') as mock_service:
-            mock_service.terminate_container.return_value = True
+            # Mock the session lookup
+            mock_session = Mock()
+            mock_session.user_id = "user-123"
+            mock_service.container_sessions = {session_id: mock_session}
             
-            response = test_client.delete(f"/api/v1/containers/{session_id}")
+            # Mock the terminate method
+            mock_service.terminate_container = AsyncMock(return_value=True)
+            
+            response = test_client.post(f"/api/v1/containers/{session_id}/terminate")
             
             assert response.status_code == 200
             data = response.json()
-            assert data["success"] is True
+            assert data["message"] == "Container terminated successfully"
 
     @pytest.mark.unit
     def test_terminate_container_not_found(self, test_client):
@@ -114,18 +136,37 @@ class TestContainerEndpoints:
     def test_list_user_containers(self, test_client, test_user_data):
         """Test listing containers for a user"""
         with patch('app.api.routes.containers.container_service') as mock_service:
-            mock_containers = [
-                Mock(id="session-1", project_name="project-1", status=ContainerStatus.RUNNING.value),
-                Mock(id="session-2", project_name="project-2", status=ContainerStatus.RUNNING.value)
-            ]
-            mock_service.list_user_containers.return_value = mock_containers
+            # Mock container sessions
+            mock_session1 = Mock()
+            mock_session1.user_id = "user-123"
+            mock_session1.container_id = "container-1"
+            mock_session1.status = ContainerStatus.RUNNING.value
+            mock_session1.created_at = "2024-01-01T00:00:00Z"
+            mock_session1.last_activity = "2024-01-01T01:00:00Z"
+            
+            mock_session2 = Mock()
+            mock_session2.user_id = "user-123"
+            mock_session2.container_id = "container-2"
+            mock_session2.status = ContainerStatus.RUNNING.value
+            mock_session2.created_at = "2024-01-01T00:00:00Z"
+            mock_session2.last_activity = "2024-01-01T01:00:00Z"
+            
+            mock_service.container_sessions = {
+                "session-1": mock_session1,
+                "session-2": mock_session2
+            }
+            
+            # Mock get_container_info calls
+            mock_info = Mock()
+            mock_info.dict.return_value = {"cpu_usage": 10.0, "memory_usage": 128}
+            mock_service.get_container_info = AsyncMock(return_value=mock_info)
             
             response = test_client.get("/api/v1/containers/")
             
             assert response.status_code == 200
             data = response.json()
-            assert len(data) == 2
-            assert data[0]["project_name"] == "project-1"
+            assert len(data["containers"]) == 2
+            assert data["containers"][0]["session_id"] == "session-1"
 
     @pytest.mark.unit
     def test_container_stats(self, test_client):

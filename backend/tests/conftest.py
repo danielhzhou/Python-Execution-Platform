@@ -3,6 +3,7 @@ Test fixtures and configuration for the Python Execution Platform backend
 """
 import asyncio
 import pytest
+import pytest_asyncio
 import tempfile
 import shutil
 from typing import AsyncGenerator, Dict, Any
@@ -17,12 +18,7 @@ from app.services.websocket_service import WebSocketService
 from app.models.container import TerminalSession, ContainerStatus
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Remove custom event_loop fixture to avoid conflicts with pytest-asyncio
 
 
 @pytest.fixture
@@ -49,9 +45,15 @@ def mock_docker_client():
             'memory_limit': 512 * 1024 * 1024   # 512MB
         }
         
+        # Configure container state and image for get_container_info
+        mock_container.state.running = True
+        mock_container.image.repo_tags = ["python-execution-sandbox:latest"]
+        mock_container.reload.return_value = None
+        
         # Configure mock client
         mock_client.return_value.run.return_value = mock_container
         mock_client.return_value.container.list.return_value = []
+        mock_client.return_value.network.list.return_value = []  # Return empty list for network.list()
         mock_client.return_value.network.create.return_value = None
         mock_client.return_value.network.connect.return_value = None
         mock_client.return_value.network.disconnect.return_value = None
@@ -60,7 +62,7 @@ def mock_docker_client():
         yield mock_client.return_value
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def container_service(mock_docker_client):
     """Create a ContainerService instance with mocked Docker client."""
     service = ContainerService()
@@ -81,7 +83,7 @@ def mock_terminal_session():
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def terminal_service(container_service, mock_terminal_session):
     """Create a TerminalService instance for testing."""
     service = TerminalService()
@@ -103,13 +105,13 @@ def mock_websocket():
     return websocket
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def websocket_service():
     """Create a WebSocketService instance for testing."""
     service = WebSocketService()
     yield service
     # Cleanup any active connections
-    service.active_connections.clear()
+    service.manager.active_connections.clear()
 
 
 @pytest.fixture
@@ -236,7 +238,7 @@ def api_test_data():
     return {
         "create_container": {
             "project_name": "test-project",
-            "language": "python"
+            "initial_files": {"main.py": "print('Hello, World!')"}
         },
         "execute_command": {
             "command": "python --version",
