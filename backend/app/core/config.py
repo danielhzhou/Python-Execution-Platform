@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     
     # Docker & Container Management
     DOCKER_HOST: str = "unix:///var/run/docker.sock"
-    CONTAINER_IMAGE: str = "python:3.11-slim"
+    CONTAINER_IMAGE: str = "python-execution-sandbox:latest"
     CONTAINER_CPU_LIMIT: str = "1.0"  # 1 vCPU
     CONTAINER_MEMORY_LIMIT: str = "512m"  # 512MB
     CONTAINER_TIMEOUT_SECONDS: int = 1800  # 30 minutes

@@ -70,17 +70,17 @@ class ContainerService:
                 interactive=True,
                 remove=False,  # We'll manage cleanup manually
                 user="1000:1000",  # Non-root user
-                network="none",  # Start with no network access
+                networks=[],  # Start with no network access
                 cpus=settings.CONTAINER_CPU_LIMIT,
                 memory=settings.CONTAINER_MEMORY_LIMIT,
-                working_dir="/workspace",
-                environment={
+                workdir="/workspace",
+                envs={
                     "PYTHONUNBUFFERED": "1",
                     "TERM": "xterm-256color"
                 },
                 volumes=[
                     # Create a temporary workspace volume
-                    f"{container_name}-workspace:/workspace"
+                    (f"{container_name}-workspace", "/workspace")
                 ]
             )
             
