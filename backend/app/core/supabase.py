@@ -8,6 +8,12 @@ from sqlmodel import SQLModel, Session
 
 from app.core.config import settings
 
+# Configure SQLAlchemy logging BEFORE creating the engine
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.dialects").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.orm").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Supabase client for API operations
@@ -19,9 +25,12 @@ supabase_client: Client = create_client(
 # Database engine for SQLModel operations
 engine = create_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,  # Log SQL queries in debug mode
+    echo=False,  # Disable SQL query logging to reduce noise
     pool_pre_ping=True,   # Verify connections before use
-    pool_recycle=300      # Recycle connections every 5 minutes
+    pool_recycle=300,     # Recycle connections every 5 minutes
+    # Configure logging levels for SQLAlchemy
+    logging_name="sqlalchemy.engine",
+    echo_pool=False,  # Disable connection pool logging
 )
 
 

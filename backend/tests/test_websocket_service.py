@@ -9,6 +9,9 @@ from unittest.mock import Mock, AsyncMock, patch
 from app.services.websocket_service import WebSocketService, WebSocketMessage
 from fastapi import WebSocketDisconnect
 
+# Test constants with valid UUID formats
+TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000"
+
 
 class TestWebSocketService:
     """Test suite for WebSocketService"""
@@ -24,7 +27,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_handle_terminal_connection_success(self, websocket_service, mock_websocket):
         """Test successful WebSocket terminal connection"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         with patch('app.services.websocket_service.container_service') as mock_container_service, \
              patch('app.services.websocket_service.terminal_service') as mock_terminal_service:
@@ -56,7 +59,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_handle_terminal_input_message(self, websocket_service, mock_websocket, websocket_messages):
         """Test handling terminal input messages"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         with patch('app.services.websocket_service.terminal_service') as mock_terminal_service:
             mock_terminal_service.send_input = AsyncMock(return_value=True)
@@ -75,7 +78,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_handle_terminal_resize_message(self, websocket_service, mock_websocket, websocket_messages):
         """Test handling terminal resize messages"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         with patch('app.services.websocket_service.terminal_service') as mock_terminal_service:
             mock_terminal_service.resize_terminal = AsyncMock(return_value=True)
@@ -94,7 +97,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_handle_ping_message(self, websocket_service, mock_websocket, websocket_messages):
         """Test handling ping messages"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         # Process ping message
         await websocket_service.manager.handle_message(mock_websocket, session_id, json.dumps({"type": "ping"}))
@@ -108,7 +111,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_handle_unknown_message_type(self, websocket_service, mock_websocket):
         """Test handling unknown message types"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         unknown_message = json.dumps({
             "type": "unknown_type",
@@ -125,7 +128,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_broadcast_output_to_session(self, websocket_service, mock_websocket):
         """Test broadcasting output to specific session"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         message_data = {"type": "terminal_output", "data": {"output": "Hello from terminal!\n"}}
         
         # Add connection to session connections
@@ -155,7 +158,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_connection_cleanup_on_disconnect(self, websocket_service, mock_websocket):
         """Test proper cleanup when WebSocket disconnects"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         with patch('app.services.websocket_service.container_service') as mock_container_service, \
              patch('app.services.websocket_service.terminal_service') as mock_terminal_service:
@@ -187,7 +190,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_connection_statistics_tracking(self, websocket_service, mock_websocket):
         """Test connection statistics are properly tracked"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         with patch('app.services.websocket_service.container_service') as mock_container_service, \
              patch('app.services.websocket_service.terminal_service') as mock_terminal_service:
@@ -215,7 +218,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_concurrent_connections(self, websocket_service):
         """Test handling multiple concurrent WebSocket connections"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         mock_websockets = [Mock() for _ in range(3)]
         
         # Mock the accept method for each websocket
@@ -237,7 +240,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_message_validation(self, websocket_service, mock_websocket):
         """Test WebSocket message validation"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         # Test messages that should trigger validation errors and send error responses
         validation_error_messages = [
@@ -263,7 +266,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_websocket_error_handling(self, websocket_service, mock_websocket):
         """Test WebSocket error handling and recovery"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         with patch('app.services.websocket_service.terminal_service') as mock_terminal_service:
             mock_terminal_service.send_input = AsyncMock(side_effect=Exception("Terminal error"))
@@ -283,7 +286,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_output_streaming_performance(self, websocket_service, mock_websocket):
         """Test output streaming performance with high-frequency updates"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         websocket_service.manager.session_connections[session_id] = {mock_websocket}
         
         # Send output messages rapidly
@@ -304,7 +307,7 @@ class TestWebSocketService:
     @pytest.mark.asyncio
     async def test_connection_heartbeat(self, websocket_service, mock_websocket):
         """Test WebSocket connection heartbeat mechanism"""
-        session_id = "test-session-123"
+        session_id = TEST_SESSION_ID
         
         # Test ping-pong directly with the manager
         await websocket_service.manager.handle_message(mock_websocket, session_id, json.dumps({"type": "ping"}))

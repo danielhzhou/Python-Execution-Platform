@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.services.terminal_service import terminal_service
 from app.services.container_service import container_service
+from app.services.database_service import db_service
 
 logger = logging.getLogger(__name__)
 
@@ -237,24 +238,33 @@ class WebSocketService:
         self.manager = WebSocketManager()
         
     async def handle_terminal_connection(self, websocket: WebSocket, session_id: str):
-        """Handle a new terminal WebSocket connection"""
+        """Handle a new terminal WebSocket connection for local development"""
         try:
-            # Verify session exists
-            container_session = container_service.container_sessions.get(session_id)
-            if not container_session:
-                await websocket.close(code=1008, reason="Invalid session ID")
-                return
-                
+            # For local development, we don't need to verify database session
+            # Just create a terminal session directly
+            
             # Create terminal session if it doesn't exist
             terminal_session = await terminal_service.get_terminal_session(session_id)
             if not terminal_session:
-                success = await terminal_service.create_terminal_session(session_id)
+                # Create local terminal session with current working directory
+                import os
+                working_dir = os.getcwd()
+                success = await terminal_service.create_terminal_session(session_id, working_dir)
                 if not success:
                     await websocket.close(code=1011, reason="Failed to create terminal session")
                     return
                     
             # Connect WebSocket
             await self.manager.connect(websocket, session_id)
+            
+            # Send welcome message
+            await websocket.send_text(json.dumps({
+                "type": "connected",
+                "data": {
+                    "message": "Terminal connected successfully",
+                    "session_id": session_id
+                }
+            }))
             
             # Start output streaming in background
             output_task = asyncio.create_task(

@@ -1,40 +1,144 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useEffect, useState } from 'react';
+import { Header } from './components/layout/Header';
+import { Sidebar } from './components/layout/Sidebar';
+
+import { MonacoEditor } from './components/editor/MonacoEditor';
+import { Terminal } from './components/terminal/Terminal';
+import { AuthForm } from './components/common/AuthForm';
+import { SubmissionDialog } from './components/common/SubmissionDialog';
+import { ToastProvider } from './components/common/ToastProvider';
+import { ErrorBoundary, MonacoErrorBoundary, TerminalErrorBoundary } from './components/common/ErrorBoundary';
+import { useAppStore } from './stores/appStore';
+import { useContainer } from './hooks/useContainer';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const { 
+    isAuthenticated, 
+    loading, 
+    error, 
+    checkAuthStatus, 
+    setError 
+  } = useAppStore();
+  
+  const {
+    currentContainer,
+    createContainer,
+    isInitialized
+  } = useContainer();
+
+  const [showSubmissionDialog, setShowSubmissionDialog] = useState(false);
+  const [hasAttemptedContainerCreation, setHasAttemptedContainerCreation] = useState(false);
+
+  // Check auth status only once on mount
+  useEffect(() => {
+    console.log('🔑 Checking authentication status...');
+    checkAuthStatus();
+  }, []); // Remove checkAuthStatus from dependencies to prevent loops
+
+  // Auto-create container when user is authenticated and containers are loaded
+  // Only attempt once per session
+  useEffect(() => {
+    if (
+      isAuthenticated && 
+      isInitialized && 
+      !currentContainer && 
+      !loading && 
+      !hasAttemptedContainerCreation
+    ) {
+      console.log('🚀 Auto-creating container for authenticated user...');
+      setHasAttemptedContainerCreation(true);
+      createContainer().catch(err => {
+        console.error('❌ Auto-container creation failed:', err);
+        // Reset flag on failure so user can try again manually
+        setHasAttemptedContainerCreation(false);
+      });
+    }
+  }, [isAuthenticated, isInitialized, currentContainer, loading, hasAttemptedContainerCreation, createContainer]);
+
+  // Clear any previous errors when component mounts
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, setError]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <ToastProvider>
+        <ErrorBoundary>
+          <div className="min-h-screen bg-background flex items-center justify-center">
+            <AuthForm />
+          </div>
+        </ErrorBoundary>
+      </ToastProvider>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center">
-      <div className="flex gap-8 mb-8">
-        <a href="https://vite.dev" target="_blank" className="hover:opacity-80 transition-opacity">
-          <img src={viteLogo} className="logo h-24 w-24" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank" className="hover:opacity-80 transition-opacity">
-          <img src={reactLogo} className="logo react h-24 w-24" alt="React logo" />
-        </a>
-      </div>
-      <h1 className="text-4xl font-bold mb-8 bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-        Vite + React + Tailwind
-      </h1>
-      <div className="bg-gray-800 p-8 rounded-lg shadow-lg">
-        <button 
-          onClick={() => setCount((count) => count + 1)}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 mb-4"
-        >
-          count is {count}
-        </button>
-        <p className="text-gray-300 text-center">
-          Edit <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300">src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="text-gray-400 mt-8 text-center max-w-md">
-        Click on the Vite and React logos to learn more. Tailwind CSS is now configured!
-      </p>
-    </div>
-  )
+    <ToastProvider>
+      <ErrorBoundary>
+        <div className="min-h-screen bg-background">
+          {/* Global Error Display */}
+          {error && (
+            <div className="bg-destructive/10 border-l-4 border-destructive p-4 mb-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <p className="text-sm text-destructive">
+                    {typeof error === 'string' ? error : 'An error occurred'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Header */}
+          <Header className="border-b" />
+          
+          {/* Main Layout */}
+          <div className="flex h-[calc(100vh-4rem)]">
+            {/* Sidebar */}
+            <Sidebar />
+            
+            {/* Main Content */}
+            <div className="flex-1 flex">
+              {/* Code Editor */}
+              <div className="flex-1 border-r">
+                <MonacoErrorBoundary>
+                  <MonacoEditor />
+                </MonacoErrorBoundary>
+              </div>
+              
+              {/* Terminal */}
+              <div className="flex-1">
+                <TerminalErrorBoundary>
+                  <Terminal />
+                </TerminalErrorBoundary>
+              </div>
+            </div>
+          </div>
+
+          {/* Submission Dialog */}
+          <SubmissionDialog
+            open={showSubmissionDialog}
+            onOpenChange={setShowSubmissionDialog}
+          />
+        </div>
+      </ErrorBoundary>
+    </ToastProvider>
+  );
 }
 
-export default App
+export default App;
