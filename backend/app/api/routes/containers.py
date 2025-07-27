@@ -147,8 +147,8 @@ async def terminate_container(
             logger.warning(f"Container not found for termination: {session_id}")
             raise HTTPException(status_code=404, detail="Container not found")
         
-        if session.user_id != user_id:
-            logger.warning(f"Access denied: user {user_id} tried to terminate container owned by {session.user_id}")
+        if session["user_id"] != user_id:
+            logger.warning(f"Access denied: user {user_id} tried to terminate container owned by {session['user_id']}")
             raise HTTPException(status_code=403, detail="Access denied")
         
         success = await terminal_service.terminate_terminal_session(session_id)
