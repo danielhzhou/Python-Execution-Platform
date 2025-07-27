@@ -115,7 +115,7 @@ export function Sidebar({ className }: SidebarProps) {
                   New Container
                 </Button>
                 
-                {containers.map((container) => (
+                {(containers || []).map((container) => (
                   <div
                     key={container.id}
                     className={cn(
@@ -156,7 +156,7 @@ export function Sidebar({ className }: SidebarProps) {
                   </div>
                 ))}
                 
-                {containers.length === 0 && (
+                {(!containers || containers.length === 0) && (
                   <div className="text-xs text-muted-foreground text-center py-2">
                     No containers available
                   </div>
@@ -197,7 +197,7 @@ export function Sidebar({ className }: SidebarProps) {
                   New File
                 </Button>
                 
-                {files.map((file) => (
+                {(files || []).map((file) => (
                   <div
                     key={file.id}
                     className={cn(
@@ -213,7 +213,7 @@ export function Sidebar({ className }: SidebarProps) {
                   </div>
                 ))}
                 
-                {files.length === 0 && (
+                {(!files || files.length === 0) && (
                   <div className="text-xs text-muted-foreground text-center py-4">
                     No files available
                   </div>

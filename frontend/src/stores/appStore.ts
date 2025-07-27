@@ -11,6 +11,10 @@ interface AppState {
   currentContainer: Container | null;
   containers: Container[];
   
+  // File management
+  files: any[];
+  currentFile: any | null;
+  
   // UI state
   loading: boolean;
   error: string | null;
@@ -28,6 +32,9 @@ interface AppState {
   removeContainer: (id: string) => void;
   setContainers: (containers: Container[]) => void;
   
+  setFiles: (files: any[]) => void;
+  setCurrentFile: (file: any | null) => void;
+  
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   toggleSidebar: () => void;
@@ -42,6 +49,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   isAuthenticated: false,
   currentContainer: null,
   containers: [],
+  files: [],
+  currentFile: null,
   loading: false,
   error: null,
   sidebarOpen: true,
@@ -104,6 +113,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         user: null,
         currentContainer: null,
         containers: [],
+        files: [],
+        currentFile: null,
         loading: false,
         error: null
       });
@@ -132,6 +143,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   
   setContainers: (containers) => set({ containers }),
+  
+  // File actions
+  setFiles: (files) => set({ files }),
+  setCurrentFile: (currentFile) => set({ currentFile }),
   
   // UI actions
   setLoading: (loading) => set({ loading }),
