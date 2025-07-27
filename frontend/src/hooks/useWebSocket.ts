@@ -88,9 +88,8 @@ export function useWebSocket() {
   const sendCommand = useCallback((command: string) => {
     if (wsRef.current && containerId) {
       wsRef.current.send({
-        type: 'terminal_input',
-        data: command,
-        containerId: containerId
+        type: 'input',
+        data: { data: command }
       });
     }
   }, [containerId]);
@@ -108,4 +107,4 @@ export function useWebSocket() {
     sendCommand,
     isConnected: wsRef.current?.isConnected || false
   };
-} 
+}  

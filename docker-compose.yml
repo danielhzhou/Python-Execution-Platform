@@ -9,7 +9,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8000/api
       - VITE_WS_URL=ws://localhost:8000
     depends_on:
       - backend
@@ -30,9 +30,10 @@ services:
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./backend:/app
       - user_data:/app/user_data
+    user: root
 
 volumes:
   user_data:
@@ -44,4 +45,4 @@ networks:
     driver: bridge
     driver_opts:
       com.docker.network.bridge.enable_icc: "false"
-      com.docker.network.bridge.enable_ip_masquerade: "true" 
+      com.docker.network.bridge.enable_ip_masquerade: "true"    

@@ -19,6 +19,7 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 pydantic==2.11.7
 pydantic-settings==2.1.0
+email-validator==2.1.0
 
 # Docker integration
 python-on-whales==0.71.0
@@ -34,4 +35,4 @@ psutil==5.9.8
 
 # Testing
 pytest==7.4.4
-pytest-asyncio==0.23.4 
+pytest-asyncio==0.23.4  

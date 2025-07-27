@@ -24,8 +24,8 @@ export class WebSocketManager {
     return new Promise((resolve, reject) => {
       try {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = import.meta.env.VITE_WS_URL || `${wsProtocol}//${window.location.host}/ws`;
-        const wsUrl = `${wsHost}/terminal/${containerId}`;
+        const wsHost = import.meta.env.VITE_WS_URL || `${wsProtocol}//${window.location.host}`;
+        const wsUrl = `${wsHost}/api/containers/terminal/${containerId}`;
         
         console.log('Connecting to WebSocket:', wsUrl);
         
