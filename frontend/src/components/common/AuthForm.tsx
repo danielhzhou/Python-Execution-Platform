@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card } from '../ui/card';
 import { authApi } from '../../lib/api';
+import { useAppStore } from '../../stores/appStore';
 
 interface AuthFormProps {
-  onAuthSuccess: (user: any) => void;
 }
 
-export function AuthForm({ onAuthSuccess }: AuthFormProps) {
+export function AuthForm({}: AuthFormProps = {}) {
+  const { setUser, setAuthenticated } = useAppStore();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,11 +27,12 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
     try {
       if (isLogin) {
         const response = await authApi.login(email, password);
-        if (response.success) {
+        if (response.success && response.data) {
           setMessage('Login successful!');
-          onAuthSuccess(response.data.user);
+          setUser(response.data.user);
+          setAuthenticated(true);
         } else {
-          setError(response.error || 'Login failed');
+          setError(typeof response.error === 'string' ? response.error : 'Login failed');
         }
       } else {
         const response = await authApi.register(email, password, fullName);
@@ -42,7 +44,7 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
             setMessage('');
           }, 3000);
         } else {
-          setError(response.error || 'Registration failed');
+          setError(typeof response.error === 'string' ? response.error : 'Registration failed');
         }
       }
     } catch (err) {
@@ -210,4 +212,4 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
       </Card>
     </div>
   );
-} 
+}      

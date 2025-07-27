@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -6,7 +6,6 @@ import { Button } from '../ui/button';
 import { 
   Menu, 
   Play, 
-  Square, 
   Save, 
   Upload, 
   Download,
@@ -14,7 +13,6 @@ import {
   User,
   LogOut,
   Code,
-  Terminal as TerminalIcon,
   Wifi,
   WifiOff
 } from 'lucide-react';
@@ -28,8 +26,7 @@ export function Header({ className }: HeaderProps) {
   const { 
     user, 
     currentContainer, 
-    toggleSidebar, 
-    sidebarOpen,
+    toggleSidebar,
     isLoading,
     error 
   } = useAppStore();
@@ -254,4 +251,4 @@ export function Header({ className }: HeaderProps) {
       )}
     </header>
   );
-} 
+}    
