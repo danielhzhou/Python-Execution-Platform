@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, Column, JSON, Relationship, Text
-from sqlalchemy import String, DateTime
+from sqlalchemy import String, DateTime, ForeignKey
 
 
 class ContainerStatus(str, Enum):
@@ -45,7 +45,7 @@ class User(SQLModel, table=True):
     # Relationships
     projects: List["Project"] = Relationship(back_populates="owner")
     terminal_sessions: List["TerminalSession"] = Relationship(back_populates="user")
-    submissions: List["Submission"] = Relationship(back_populates="user")
+    # submissions: List["Submission"] = Relationship(back_populates="user")  # Temporarily disabled due to foreign key ambiguity
 
 
 class Project(SQLModel, table=True):
@@ -134,11 +134,11 @@ class Submission(SQLModel, table=True):
     __tablename__ = "submissions"
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
-    user_id: str = Field(foreign_key="users.id", index=True)
+    owner_id: str = Field(foreign_key="users.id", index=True)
     project_id: str = Field(foreign_key="projects.id", index=True)
     title: str
     description: Optional[str] = Field(sa_column=Column(Text))
-    status: str = Field(default=SubmissionStatus.DRAFT.value, sa_column=Column(String), index=True)
+    status: str = Field(default=SubmissionStatus.DRAFT.value, sa_column=Column(String, index=True))
     submitted_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
     reviewed_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
     reviewer_id: Optional[str] = Field(foreign_key="users.id", default=None)
@@ -146,7 +146,7 @@ class Submission(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column=Column(DateTime(timezone=True)))
     
     # Relationships
-    user: User = Relationship(back_populates="submissions")
+    # user: User = Relationship(back_populates="submissions")  # Temporarily disabled due to foreign key ambiguity
     project: Project = Relationship(back_populates="submissions")
     files: List["SubmissionFile"] = Relationship(back_populates="submission")
     reviews: List["SubmissionReview"] = Relationship(back_populates="submission")

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_KEY: str
     SUPABASE_JWT_SECRET: str  # For JWT verification
     
+    # Redis Configuration (optional)
+    REDIS_URL: str = "redis://localhost:6379"
+    
     # Docker & Container Management
     DOCKER_HOST: str = "unix:///var/run/docker.sock"
     CONTAINER_IMAGE: str = "python-execution-sandbox:latest"
@@ -65,7 +68,7 @@ class Settings(BaseSettings):
         raise ValueError("ALLOWED_DOMAINS must be a string or list")
     
     model_config = {
-        "env_file": ".env",
+        "env_file": [".env", "../.env"],  # Look in current dir and parent dir
         "case_sensitive": True
     }
 

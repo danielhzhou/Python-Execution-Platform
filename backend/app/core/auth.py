@@ -50,9 +50,31 @@ async def get_current_user(
                 detail="Invalid token: missing user ID"
             )
         
+        # Create or update user record in database
+        email = payload.get("email")
+        if email:
+            # Import here to avoid circular imports
+            from app.services.database_service import db_service
+            
+            # Extract user metadata
+            user_metadata = payload.get("user_metadata", {})
+            full_name = user_metadata.get("full_name") or user_metadata.get("name")
+            avatar_url = user_metadata.get("avatar_url") or user_metadata.get("picture")
+            
+            try:
+                await db_service.create_or_update_user(
+                    user_id=user_id,
+                    email=email,
+                    full_name=full_name,
+                    avatar_url=avatar_url
+                )
+            except Exception as db_error:
+                logger.warning(f"Failed to sync user to database: {db_error}")
+                # Don't fail authentication if database sync fails
+        
         return AuthUser(
             id=user_id,
-            email=payload.get("email"),
+            email=email,
             role=payload.get("role", "authenticated"),
             app_metadata=payload.get("app_metadata", {}),
             user_metadata=payload.get("user_metadata", {})

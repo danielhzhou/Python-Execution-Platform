@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.supabase import create_db_tables
 from app.api import api_router
 from app.services.container_service import container_service
+from app.services.storage_service import storage_service
 
 # Configure logging
 logging.basicConfig(
@@ -37,6 +38,13 @@ async def lifespan(app: FastAPI):
     
     # Start container service
     await container_service.start()
+    
+    # Initialize storage service
+    storage_initialized = await storage_service.ensure_bucket_exists()
+    if storage_initialized:
+        logger.info("Storage service initialized successfully")
+    else:
+        logger.warning("Failed to initialize storage service")
     
     yield
     

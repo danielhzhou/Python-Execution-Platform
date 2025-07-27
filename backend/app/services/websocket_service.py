@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.services.terminal_service import terminal_service
 from app.services.container_service import container_service
+from app.services.database_service import db_service
 
 logger = logging.getLogger(__name__)
 
@@ -239,8 +240,8 @@ class WebSocketService:
     async def handle_terminal_connection(self, websocket: WebSocket, session_id: str):
         """Handle a new terminal WebSocket connection"""
         try:
-            # Verify session exists
-            container_session = container_service.container_sessions.get(session_id)
+            # Verify session exists in database
+            container_session = await db_service.get_terminal_session(session_id)
             if not container_session:
                 await websocket.close(code=1008, reason="Invalid session ID")
                 return

@@ -12,6 +12,7 @@ from app.models.container import (
 )
 from app.services.container_service import container_service
 from app.services.websocket_service import websocket_service
+from app.services.database_service import db_service
 from app.core.auth import get_current_user_id, AuthUser, get_current_user
 
 router = APIRouter()
@@ -55,7 +56,7 @@ async def get_container_info(
 ):
     """Get container information for authenticated user"""
     # Verify user owns this session
-    session = container_service.container_sessions.get(session_id)
+    session = await db_service.get_terminal_session(session_id)
     if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Container session not found")
     
@@ -73,7 +74,7 @@ async def terminate_container(
 ):
     """Terminate a container for authenticated user"""
     # Verify user owns this session
-    session = container_service.container_sessions.get(session_id)
+    session = await db_service.get_terminal_session(session_id)
     if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Container session not found")
     
@@ -91,7 +92,7 @@ async def enable_network_access(
 ):
     """Enable network access for package installation"""
     # Verify user owns this session
-    session = container_service.container_sessions.get(session_id)
+    session = await db_service.get_terminal_session(session_id)
     if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Container session not found")
     
@@ -109,7 +110,7 @@ async def disable_network_access(
 ):
     """Disable network access"""
     # Verify user owns this session
-    session = container_service.container_sessions.get(session_id)
+    session = await db_service.get_terminal_session(session_id)
     if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Container session not found")
     
@@ -127,7 +128,7 @@ async def get_session_stats(
 ):
     """Get session statistics"""
     # Verify user owns this session
-    session = container_service.container_sessions.get(session_id)
+    session = await db_service.get_terminal_session(session_id)
     if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Container session not found")
     
@@ -140,18 +141,20 @@ async def list_user_containers(
     user_id: str = Depends(get_current_user_id)
 ):
     """List all containers for the authenticated user"""
+    # Get sessions from database
+    sessions = await db_service.get_user_terminal_sessions(user_id)
     user_sessions = []
     
-    for session_id, session in container_service.container_sessions.items():
-        if session.user_id == user_id:
-            container_info = await container_service.get_container_info(session_id)
-            user_sessions.append({
-                "session_id": session_id,
-                "container_id": session.container_id,
-                "status": session.status,
-                "created_at": session.created_at,
-                "last_activity": session.last_activity,
-                "container_info": container_info.dict() if container_info else None
-            })
+    for session in sessions:
+        container_info = await container_service.get_container_info(session.id)
+        user_sessions.append({
+            "session_id": session.id,
+            "container_id": session.container_id,
+            "status": session.status,
+            "created_at": session.created_at,
+            "last_activity": session.last_activity,
+            "project_id": session.project_id,
+            "container_info": container_info.dict() if container_info else None
+        })
     
     return {"containers": user_sessions} 
