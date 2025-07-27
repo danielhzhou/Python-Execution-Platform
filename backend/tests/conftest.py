@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 import tempfile
 import shutil
+import uuid
 from typing import AsyncGenerator, Dict, Any
 from unittest.mock import Mock, AsyncMock, patch
 from fastapi.testclient import TestClient
@@ -15,10 +16,8 @@ from app.core.config import settings
 from app.services.container_service import ContainerService
 from app.services.terminal_service import TerminalService
 from app.services.websocket_service import WebSocketService
-from app.models.container import TerminalSession, ContainerStatus
-
-
-# Remove custom event_loop fixture to avoid conflicts with pytest-asyncio
+from app.services.database_service import db_service
+from app.models.container import TerminalSession, ContainerStatus, User, Project
 
 
 @pytest.fixture
@@ -72,19 +71,54 @@ async def container_service(mock_docker_client):
     await service.stop()
 
 
-@pytest.fixture
-def mock_terminal_session():
-    """Create a mock terminal session for testing."""
-    return TerminalSession(
-        id="test-session-id",
-        user_id="test-user",
-        container_id="test-container-id",
-        status=ContainerStatus.RUNNING.value
-    )
+@pytest_asyncio.fixture
+async def test_user():
+    """Create a test user in the database."""
+    user_id = str(uuid.uuid4())
+    # Mock the db_service to avoid actual database operations in tests
+    with patch.object(db_service, 'create_or_update_user') as mock_create_user:
+        mock_user = User(
+            id=user_id,
+            email="test@example.com",
+            full_name="Test User"
+        )
+        mock_create_user.return_value = mock_user
+        yield mock_user
 
 
 @pytest_asyncio.fixture
-async def terminal_service(container_service, mock_terminal_session):
+async def test_project(test_user):
+    """Create a test project in the database."""
+    project_id = str(uuid.uuid4())
+    with patch.object(db_service, 'create_project') as mock_create_project:
+        mock_project = Project(
+            id=project_id,
+            name="Test Project",
+            owner_id=test_user.id,
+            description="Test project for testing"
+        )
+        mock_create_project.return_value = mock_project
+        yield mock_project
+
+
+@pytest_asyncio.fixture
+async def test_terminal_session(test_user, test_project):
+    """Create a test terminal session in the database."""
+    session_id = str(uuid.uuid4())
+    with patch.object(db_service, 'create_terminal_session') as mock_create_session:
+        mock_session = TerminalSession(
+            id=session_id,
+            user_id=test_user.id,
+            project_id=test_project.id,
+            container_id="test-container-id",
+            status=ContainerStatus.RUNNING.value
+        )
+        mock_create_session.return_value = mock_session
+        yield mock_session
+
+
+@pytest_asyncio.fixture
+async def terminal_service(container_service):
     """Create a TerminalService instance for testing."""
     service = TerminalService()
     # Mock the container service dependency
@@ -118,7 +152,7 @@ async def websocket_service():
 def test_container_config():
     """Test configuration for container creation."""
     return {
-        "user_id": "test-user-123",
+        "user_id": str(uuid.uuid4()),
         "project_name": "test-project",
         "image": "python-execution-sandbox:latest",
         "cpu_limit": "0.5",
@@ -207,7 +241,7 @@ def skip_if_no_docker(docker_available):
 def test_user_data():
     """Test user data for authentication tests."""
     return {
-        "user_id": "test-user-123",
+        "user_id": str(uuid.uuid4()),
         "email": "test@example.com",
         "username": "testuser"
     }
@@ -250,6 +284,20 @@ def api_test_data():
             "operation": "write"
         }
     }
+
+
+# Database mocking fixtures
+@pytest.fixture
+def mock_db_service():
+    """Mock the database service for testing."""
+    with patch('app.services.database_service.db_service') as mock:
+        # Configure common mock responses
+        mock.get_terminal_session.return_value = None
+        mock.get_user_terminal_sessions.return_value = []
+        mock.create_terminal_session.return_value = Mock()
+        mock.create_terminal_command.return_value = Mock()
+        mock.update_terminal_session.return_value = Mock()
+        yield mock
 
 
 # Async context managers for testing
