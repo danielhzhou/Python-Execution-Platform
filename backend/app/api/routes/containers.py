@@ -4,13 +4,56 @@ Container management API routes
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional
 import logging
+import uuid
+import os
+from datetime import datetime
 
 from app.core.auth import get_current_user_id
 from app.models.container import ContainerCreateRequest, ContainerResponse, TerminalSession
-from app.services.container_service import container_service
+from app.services.terminal_service import terminal_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.post("/create-local", response_model=ContainerResponse)
+async def create_local_session(
+    request: ContainerCreateRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Create a new local terminal session for development"""
+    try:
+        logger.info(f"Creating local terminal session for user {user_id}")
+        
+        # Generate session ID
+        session_id = str(uuid.uuid4())
+        
+        # Use current working directory or create a workspace
+        workspace_dir = os.path.join(os.getcwd(), "workspace")
+        os.makedirs(workspace_dir, exist_ok=True)
+        
+        # Create terminal session
+        success = await terminal_service.create_terminal_session(session_id, workspace_dir)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to create terminal session")
+        
+        # Generate WebSocket URL for terminal connection
+        websocket_url = f"ws://localhost:8000/api/containers/terminal/{session_id}"
+        
+        logger.info(f"Local terminal session created successfully: {session_id}")
+        
+        return ContainerResponse(
+            session_id=session_id,
+            container_id=session_id,  # For local dev, session_id == container_id
+            status="running",
+            websocket_url=websocket_url,
+            user_id=user_id
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to create local terminal session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create terminal session: {str(e)}")
 
 
 @router.post("/create", response_model=ContainerResponse)
@@ -19,65 +62,9 @@ async def create_container(
     replace_existing: bool = Query(False, description="Replace existing active container if one exists"),
     user_id: str = Depends(get_current_user_id)
 ):
-    """Create a new container for code execution"""
-    try:
-        logger.info(f"Creating container for user {user_id}")
-        
-        # If replace_existing is True, cleanup any existing containers first
-        if replace_existing:
-            logger.info("Cleaning up existing containers before creating new one")
-            await cleanup_user_containers(user_id)
-        
-        session = await container_service.create_container(
-            user_id=user_id,
-            project_id=request.project_id,
-            project_name=request.project_name,
-            initial_files=request.initial_files or {}
-        )
-        
-        # Generate WebSocket URL for terminal connection
-        websocket_url = f"ws://localhost:8000/api/ws/terminal/{session.id}"
-        
-        logger.info(f"Container created successfully for user {user_id}: {session.id}")
-        
-        return ContainerResponse(
-            session_id=str(session.id),  # Convert UUID to string
-            container_id=str(session.container_id),  # Convert UUID to string
-            status=session.status,  # Already a string from database
-            websocket_url=websocket_url,
-            user_id=str(session.user_id)  # Convert session.user_id UUID to string
-        )
-        
-    except ValueError as e:
-        logger.warning(f"Container creation validation error for user {user_id}: {str(e)}")
-        if "already has an active container" in str(e):
-            raise HTTPException(
-                status_code=409, 
-                detail={
-                    "error": "User already has an active container",
-                    "message": "You already have an active container. Please terminate it first or use replace_existing=true",
-                    "suggestion": "Try calling /api/containers/cleanup first, or add ?replace_existing=true to this request"
-                }
-            )
-        raise HTTPException(status_code=400, detail=str(e))
-    except ImportError as e:
-        logger.error(f"Missing dependency for container creation: {str(e)}")
-        raise HTTPException(
-            status_code=500, 
-            detail="Container service is not properly configured. Please check Docker installation and configuration."
-        )
-    except ConnectionError as e:
-        logger.error(f"Docker connection error: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail="Cannot connect to Docker daemon. Please ensure Docker is running and accessible."
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error creating container for user {user_id}: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to create container: {str(e)}"
-        )
+    """Create a new container for code execution (redirects to local for development)"""
+    # For development, redirect to local session creation
+    return await create_local_session(request, user_id)
 
 
 @router.get("/{session_id}/info", response_model=ContainerResponse)
@@ -89,24 +76,24 @@ async def get_container_info(
     try:
         logger.info(f"Getting container info for session {session_id}, user {user_id}")
         
-        session = await container_service.get_container_info(session_id)
+        session = await terminal_service.get_terminal_session_info(session_id)
         if not session:
             logger.warning(f"Container not found: {session_id}")
             raise HTTPException(status_code=404, detail="Container not found")
         
         # Verify user owns this container
-        if session.user_id != user_id:
-            logger.warning(f"Access denied: user {user_id} tried to access container owned by {session.user_id}")
+        if session["user_id"] != user_id:
+            logger.warning(f"Access denied: user {user_id} tried to access container owned by {session['user_id']}")
             raise HTTPException(status_code=403, detail="Access denied")
         
-        websocket_url = f"ws://localhost:8000/api/ws/terminal/{session_id}"
+        websocket_url = f"ws://localhost:8000/api/containers/terminal/{session_id}"
         
         return ContainerResponse(
-            session_id=str(session.id),  # Convert UUID to string
-            container_id=str(session.container_id),  # Convert UUID to string
-            status=session.status,  # Already a string from database
+            session_id=str(session["id"]),  # Convert UUID to string
+            container_id=str(session["id"]),  # For local dev, session_id == container_id
+            status=session["status"],  # Already a string
             websocket_url=websocket_url,
-            user_id=str(session.user_id)  # Convert session.user_id UUID to string
+            user_id=str(session["user_id"])  # Convert session.user_id UUID to string
         )
         
     except HTTPException:
@@ -122,17 +109,17 @@ async def list_containers(user_id: str = Depends(get_current_user_id)):
     try:
         logger.info(f"Listing containers for user {user_id}")
         
-        sessions = await container_service.list_user_containers(user_id)
+        sessions = await terminal_service.list_user_terminal_sessions(user_id)
         
         logger.info(f"Found {len(sessions)} containers for user {user_id}")
         
         return [
             ContainerResponse(
-                session_id=str(session.id),  # Convert UUID to string
-                container_id=str(session.container_id),  # Convert UUID to string
-                status=session.status,  # Already a string from database
-                websocket_url=f"ws://localhost:8000/api/ws/terminal/{session.id}",
-                user_id=str(session.user_id)  # Convert session.user_id UUID to string
+                session_id=str(session["id"]),  # Convert UUID to string
+                container_id=str(session["id"]),  # For local dev, session_id == container_id
+                status=session["status"],  # Already a string
+                websocket_url=f"ws://localhost:8000/api/containers/terminal/{session['id']}",
+                user_id=str(session["user_id"])  # Convert session.user_id UUID to string
             )
             for session in sessions
         ]
@@ -155,7 +142,7 @@ async def terminate_container(
         logger.info(f"Terminating container {session_id} for user {user_id}")
         
         # Verify user owns this container
-        session = await container_service.get_container_info(session_id)
+        session = await terminal_service.get_terminal_session_info(session_id)
         if not session:
             logger.warning(f"Container not found for termination: {session_id}")
             raise HTTPException(status_code=404, detail="Container not found")
@@ -164,7 +151,7 @@ async def terminate_container(
             logger.warning(f"Access denied: user {user_id} tried to terminate container owned by {session.user_id}")
             raise HTTPException(status_code=403, detail="Access denied")
         
-        success = await container_service.terminate_container(session_id)
+        success = await terminal_service.terminate_terminal_session(session_id)
         
         if success:
             logger.info(f"Container {session_id} terminated successfully")
@@ -199,7 +186,7 @@ async def cleanup_user_containers(user_id: str = Depends(get_current_user_id)):
         for session in active_sessions:
             try:
                 logger.info(f"Terminating container {session.id}")
-                success = await container_service.terminate_container(session.id)
+                success = await terminal_service.terminate_terminal_session(session.id)
                 if success:
                     terminated_count += 1
                 else:

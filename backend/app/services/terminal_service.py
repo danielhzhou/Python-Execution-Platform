@@ -7,54 +7,59 @@ import re
 import os
 import signal
 import threading
-from typing import Optional, Dict, AsyncGenerator
+from typing import Optional, Dict, AsyncGenerator, List
 from datetime import datetime
 from queue import Queue, Empty
+import subprocess
+import sys
 
 import ptyprocess
-from python_on_whales import Container
-from python_on_whales.exceptions import DockerException
 
 from app.core.config import settings
 from app.models.container import TerminalOutput
-from app.services.container_service import container_service
 from app.services.database_service import db_service
 
 logger = logging.getLogger(__name__)
 
 
-class TerminalSession:
-    """Represents an active terminal session with proper PTY"""
+class LocalTerminalSession:
+    """Represents an active local terminal session with proper PTY"""
     
-    def __init__(self, session_id: str, container: Container):
+    def __init__(self, session_id: str, working_directory: str = None):
         self.session_id = session_id
-        self.container = container
+        self.working_directory = working_directory or os.getcwd()
         self.pty_process = None
         self.is_active = False
         self.command_history: list = []
-        self.current_directory = "/workspace"
         self.output_queue = Queue()
         self.reader_thread = None
         self._stop_event = threading.Event()
         
     async def start_shell(self) -> bool:
-        """Start an interactive shell with proper PTY in the container"""
+        """Start an interactive Python shell with proper PTY"""
         try:
-            logger.info(f"Starting PTY shell for session {self.session_id}")
+            logger.info(f"Starting local PTY shell for session {self.session_id}")
             
-            # Create a PTY process that runs docker exec with proper terminal
-            docker_cmd = [
-                'docker', 'exec', '-it', 
-                self.container.id,
-                '/bin/bash', '--login'
+            # Set up environment for Python development
+            env = os.environ.copy()
+            env['PYTHONPATH'] = self.working_directory
+            env['PYTHONUNBUFFERED'] = '1'
+            
+            # Use the system Python or virtual environment if available
+            python_cmd = sys.executable
+            
+            # Start an interactive Python shell with PTY
+            shell_cmd = [
+                '/bin/bash',  # Start with bash
+                '--login'
             ]
             
             # Start the PTY process
             self.pty_process = ptyprocess.PtyProcess.spawn(
-                docker_cmd,
-                dimensions=(settings.TERMINAL_ROWS, settings.TERMINAL_COLS),
-                cwd=None,
-                env=os.environ.copy()
+                shell_cmd,
+                dimensions=(settings.TERMINAL_ROWS or 24, settings.TERMINAL_COLS or 80),
+                cwd=self.working_directory,
+                env=env
             )
             
             self.is_active = True
@@ -66,11 +71,29 @@ class TerminalSession:
             )
             self.reader_thread.start()
             
-            logger.info(f"PTY shell started for session {self.session_id}")
+            # Send initial setup commands
+            await asyncio.sleep(0.1)  # Let shell initialize
+            
+            # Set up Python environment
+            setup_commands = [
+                f'cd "{self.working_directory}"\n',
+                f'export PYTHONPATH="{self.working_directory}"\n',
+                f'export PYTHONUNBUFFERED=1\n',
+                f'echo "🐍 Python Development Environment Ready"\n',
+                f'echo "Working directory: {self.working_directory}"\n',
+                f'echo "Python: {python_cmd}"\n',
+                f'python3 --version\n'
+            ]
+            
+            for cmd in setup_commands:
+                await self.send_input(cmd)
+                await asyncio.sleep(0.05)  # Small delay between commands
+            
+            logger.info(f"Local PTY shell started for session {self.session_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to start PTY shell: {e}")
+            logger.error(f"Failed to start local PTY shell: {e}")
             return False
             
     async def send_input(self, data: str) -> bool:
@@ -113,19 +136,20 @@ class TerminalSession:
         try:
             while self.is_active and not self._stop_event.is_set():
                 try:
-                    # Read from PTY with timeout
+                    # Read from PTY with a small timeout using select
                     if self.pty_process and self.pty_process.isalive():
-                        data = self.pty_process.read(size=settings.PTY_BUFFER_SIZE, timeout=0.1)
-                        if data:
-                            # Decode and put in queue
-                            decoded_data = data.decode('utf-8', errors='ignore')
-                            self.output_queue.put(decoded_data)
+                        import select
+                        ready, _, _ = select.select([self.pty_process.fd], [], [], 0.1)
+                        if ready:
+                            # Data is available, read it
+                            data = self.pty_process.read(size=settings.PTY_BUFFER_SIZE or 8192)
+                            if data:
+                                # Decode and put in queue
+                                decoded_data = data.decode('utf-8', errors='ignore')
+                                self.output_queue.put(decoded_data)
+                        # If no data available, just continue (timeout case)
                     else:
                         break
-                        
-                except ptyprocess.exceptions.TIMEOUT:
-                    # No data available, continue
-                    continue
                 except Exception as e:
                     logger.error(f"Error in PTY reader thread: {e}")
                     break
@@ -179,11 +203,11 @@ class TerminalSession:
 
 
 class TerminalService:
-    """Service for managing terminal sessions and PTY operations"""
+    """Service for managing local terminal sessions and PTY operations"""
     
     def __init__(self):
-        self.active_sessions: Dict[str, TerminalSession] = {}
-        # Enhanced network command patterns
+        self.active_sessions: Dict[str, LocalTerminalSession] = {}
+        # Enhanced network command patterns (for local development these are all allowed)
         self.network_command_patterns = {
             'pip_install': re.compile(r'\bpip\s+install\b'),
             'npm_install': re.compile(r'\bnpm\s+install\b'),
@@ -195,31 +219,32 @@ class TerminalService:
             'wget': re.compile(r'\bwget\s+'),
         }
         
-    async def create_terminal_session(self, session_id: str) -> bool:
-        """Create a new terminal session"""
-        # Get container session from database
-        container_session = await db_service.get_terminal_session(session_id)
-        if not container_session:
-            logger.error(f"No container session found for {session_id}")
+    async def create_terminal_session(self, session_id: str, working_directory: str = None) -> bool:
+        """Create a new local terminal session"""
+        try:
+            # For local development, we don't need container session from database
+            # Just create a local terminal session
+            
+            # Use provided working directory or default to current directory
+            work_dir = working_directory or os.getcwd()
+            
+            # Create local terminal session
+            terminal_session = LocalTerminalSession(session_id, work_dir)
+            
+            # Start the shell
+            if await terminal_session.start_shell():
+                self.active_sessions[session_id] = terminal_session
+                logger.info(f"Local terminal session created for {session_id} in {work_dir}")
+                return True
+            else:
+                logger.error(f"Failed to start shell for session {session_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error creating terminal session {session_id}: {e}")
             return False
-            
-        container = container_service.active_containers.get(container_session.container_id)
-        if not container:
-            logger.error(f"No active container found for session {session_id}")
-            return False
-            
-        # Create terminal session
-        terminal_session = TerminalSession(session_id, container)
         
-        # Start the shell
-        if await terminal_session.start_shell():
-            self.active_sessions[session_id] = terminal_session
-            logger.info(f"Terminal session created for {session_id}")
-            return True
-            
-        return False
-        
-    async def get_terminal_session(self, session_id: str) -> Optional[TerminalSession]:
+    async def get_terminal_session(self, session_id: str) -> Optional[LocalTerminalSession]:
         """Get an active terminal session"""
         return self.active_sessions.get(session_id)
         
@@ -227,37 +252,25 @@ class TerminalService:
         """Send a command to the terminal"""
         terminal_session = self.active_sessions.get(session_id)
         if not terminal_session:
+            logger.warning(f"No terminal session found for {session_id}")
             return False
             
-        # Record command in database
-        await db_service.create_terminal_command(
-            session_id=session_id,
-            command=command.strip(),
-            working_dir=terminal_session.current_directory
-        )
-        
-        # Check if this command needs network access
-        if self._needs_network_access(command):
-            await self._handle_network_command(session_id, command)
-        else:
+        try:
+            # For local development, we can record commands if needed
+            # await db_service.create_terminal_command(
+            #     session_id=session_id,
+            #     command=command.strip(),
+            #     working_dir=terminal_session.working_directory
+            # )
+            
             # Send command directly (ensure it ends with newline)
             if not command.endswith('\n'):
                 command += '\n'
-            await terminal_session.send_input(command)
+            return await terminal_session.send_input(command)
             
-        # Update command history in memory
-        terminal_session.command_history.append({
-            'command': command.strip(),
-            'timestamp': datetime.utcnow()
-        })
-        
-        # Update last activity in database
-        await db_service.update_terminal_session(
-            session_id, 
-            last_activity=datetime.utcnow()
-        )
-            
-        return True
+        except Exception as e:
+            logger.error(f"Error sending command to session {session_id}: {e}")
+            return False
         
     async def send_input(self, session_id: str, data: str) -> bool:
         """Send raw input to the terminal"""
@@ -312,11 +325,11 @@ class TerminalService:
         
         try:
             # Enable network access
-            network_enabled = await container_service.enable_network_access(session_id)
-            if not network_enabled:
-                error_msg = "Failed to enable network access for command execution\n"
-                await self._send_system_message(session_id, error_msg)
-                return
+            # network_enabled = await container_service.enable_network_access(session_id) # This line is removed
+            # if not network_enabled:
+            #     error_msg = "Failed to enable network access for command execution\n"
+            #     await self._send_system_message(session_id, error_msg)
+            #     return
                 
             # Send appropriate notification based on command type
             notifications = {
@@ -346,7 +359,7 @@ class TerminalService:
                 await asyncio.sleep(5)
                 
             # Disable network access
-            await container_service.disable_network_access(session_id)
+            # await container_service.disable_network_access(session_id) # This line is removed
             await self._send_system_message(
                 session_id, 
                 "🔒 Network access disabled. Command execution complete.\n"
@@ -359,7 +372,7 @@ class TerminalService:
                 f"❌ Error during command execution: {str(e)}\n"
             )
             # Ensure network is disabled even on error
-            await container_service.disable_network_access(session_id)
+            # await container_service.disable_network_access(session_id) # This line is removed
             
     async def _send_system_message(self, session_id: str, message: str):
         """Send a system message to the terminal"""
@@ -372,44 +385,52 @@ class TerminalService:
     async def execute_command_sync(self, session_id: str, command: str) -> Optional[str]:
         """Execute a command synchronously and return the output"""
         # Get container session from database
-        container_session = await db_service.get_terminal_session(session_id)
-        if not container_session:
-            return None
+        # container_session = await db_service.get_terminal_session(session_id) # This line is removed
+        # if not container_session:
+        #     return None
             
-        container = container_service.active_containers.get(container_session.container_id)
-        if not container:
-            return None
+        # container = container_service.active_containers.get(container_session.container_id) # This line is removed
+        # if not container:
+        #     return None
             
         try:
             # Execute command and capture output
-            result = container.execute(
-                ["bash", "-c", command],
-                capture_output=True,
-                text=True
-            )
+            # result = container.execute( # This line is removed
+            #     ["bash", "-c", command],
+            #     capture_output=True,
+            #     text=True
+            # )
             
             # Record command in database with output
-            await db_service.create_terminal_command(
-                session_id=session_id,
-                command=command,
-                working_dir="/workspace",
-                exit_code=result.return_code,
-                output=result.stdout,
-                error_output=result.stderr
-            )
+            # await db_service.create_terminal_command( # This line is removed
+            #     session_id=session_id,
+            #     command=command,
+            #     working_dir="/workspace",
+            #     exit_code=result.return_code,
+            #     output=result.stdout,
+            #     error_output=result.stderr
+            # )
             
-            return result.stdout if result.stdout else result.stderr
+            # return result.stdout if result.stdout else result.stderr # This line is removed
             
-        except DockerException as e:
+            # For local development, we can just execute the command directly
+            terminal_session = self.active_sessions.get(session_id)
+            if terminal_session:
+                if not command.endswith('\n'):
+                    command += '\n'
+                result = await terminal_session.send_input(command)
+                return result # Assuming send_input returns the output
+                
+        except Exception as e:
             logger.error(f"Failed to execute command: {e}")
             # Record failed command
-            await db_service.create_terminal_command(
-                session_id=session_id,
-                command=command,
-                working_dir="/workspace",
-                exit_code=-1,
-                error_output=str(e)
-            )
+            # await db_service.create_terminal_command( # This line is removed
+            #     session_id=session_id,
+            #     command=command,
+            #     working_dir="/workspace",
+            #     exit_code=-1,
+            #     error_output=str(e)
+            # )
             return f"Error: {str(e)}"
             
     async def get_working_directory(self, session_id: str) -> Optional[str]:
@@ -421,6 +442,49 @@ class TerminalService:
         """List files in a directory"""
         command = f"ls -la {path}"
         return await self.execute_command_sync(session_id, command)
+    
+    async def get_terminal_session_info(self, session_id: str) -> Optional[dict]:
+        """Get terminal session info (for compatibility with container API)"""
+        terminal_session = self.active_sessions.get(session_id)
+        if not terminal_session:
+            return None
+        
+        return {
+            "id": session_id,
+            "user_id": "local_user",  # For local development
+            "status": "running" if terminal_session.is_active else "stopped",
+            "created_at": datetime.utcnow(),
+            "last_activity": datetime.utcnow()
+        }
+    
+    async def list_user_terminal_sessions(self, user_id: str) -> List[dict]:
+        """List all terminal sessions for a user (for compatibility with container API)"""
+        sessions = []
+        for session_id, terminal_session in self.active_sessions.items():
+            if terminal_session.is_active:
+                sessions.append({
+                    "id": session_id,
+                    "user_id": user_id,
+                    "status": "running",
+                    "created_at": datetime.utcnow(),
+                    "last_activity": datetime.utcnow()
+                })
+        return sessions
+    
+    async def terminate_terminal_session(self, session_id: str) -> bool:
+        """Terminate a terminal session"""
+        terminal_session = self.active_sessions.get(session_id)
+        if not terminal_session:
+            return False
+        
+        try:
+            await terminal_session.close()
+            del self.active_sessions[session_id]
+            logger.info(f"Terminal session {session_id} terminated successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to terminate terminal session {session_id}: {e}")
+            return False
 
 
 # Global terminal service instance

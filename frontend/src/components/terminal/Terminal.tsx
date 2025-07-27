@@ -41,7 +41,12 @@ export function Terminal({ className }: TerminalProps) {
 
   // Initialize terminal with improved error handling
   useEffect(() => {
-    if (!terminalRef.current || isTerminalInitialized) return;
+    if (!terminalRef.current || isTerminalInitialized) {
+      console.log('Terminal init skipped:', { hasRef: !!terminalRef.current, isInitialized: isTerminalInitialized });
+      return;
+    }
+    
+    console.log('🖥️ Initializing terminal...');
 
     let terminal: XTerm | null = null;
     let fitAddon: FitAddon | null = null;
@@ -141,13 +146,13 @@ export function Terminal({ className }: TerminalProps) {
           if (terminalRef.current && typeof ResizeObserver !== 'undefined') {
             resizeObserver = new ResizeObserver((entries) => {
               for (const entry of entries) {
-                if (entry.target === terminalRef.current && isTerminalInitialized) {
+                if (entry.target === terminalRef.current) {
                   if (resizeTimeout) {
                     clearTimeout(resizeTimeout);
                   }
                   resizeTimeout = setTimeout(() => {
                     safeFit();
-                  }, 100);
+                  }, 200); // Increased delay to reduce frequency
                 }
               }
             });
@@ -204,6 +209,7 @@ export function Terminal({ className }: TerminalProps) {
 
     // Cleanup function
     return () => {
+      console.log('🧹 Cleaning up terminal...');
       if (resizeTimeout) {
         clearTimeout(resizeTimeout);
       }
@@ -221,7 +227,7 @@ export function Terminal({ className }: TerminalProps) {
       fitAddonRef.current = null;
       setIsTerminalInitialized(false);
     };
-  }, [theme, fontSize, fontFamily, currentContainer, isTerminalInitialized]);
+  }, [theme, fontSize, fontFamily, currentContainer]);
 
   // Auto-connect WebSocket when terminal is ready
   useEffect(() => {

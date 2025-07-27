@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
-import { ResizablePanel } from './components/layout/ResizablePanel';
+
 import { MonacoEditor } from './components/editor/MonacoEditor';
 import { Terminal } from './components/terminal/Terminal';
 import { AuthForm } from './components/common/AuthForm';
@@ -116,27 +116,18 @@ function App() {
             {/* Main Content */}
             <div className="flex-1 flex">
               {/* Code Editor */}
-              <ResizablePanel
-                defaultSize={50}
-                minSize={30}
-                maxSize={70}
-                className="border-r"
-              >
+              <div className="flex-1 border-r">
                 <MonacoErrorBoundary>
                   <MonacoEditor />
                 </MonacoErrorBoundary>
-              </ResizablePanel>
+              </div>
               
               {/* Terminal */}
-              <ResizablePanel
-                defaultSize={50}
-                minSize={30}
-                maxSize={70}
-              >
+              <div className="flex-1">
                 <TerminalErrorBoundary>
                   <Terminal />
                 </TerminalErrorBoundary>
-              </ResizablePanel>
+              </div>
             </div>
           </div>
 
