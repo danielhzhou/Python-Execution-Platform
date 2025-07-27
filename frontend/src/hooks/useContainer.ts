@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { containerApi } from '../lib/api';
@@ -16,8 +16,14 @@ export function useContainer() {
   } = useAppStore();
 
   const { setContainerId } = useTerminalStore();
+  const isCreatingRef = useRef(false);
 
   const createContainer = useCallback(async (): Promise<Container | null> => {
+    if (isCreatingRef.current) {
+      return null; // Prevent multiple simultaneous creations
+    }
+    
+    isCreatingRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -25,7 +31,17 @@ export function useContainer() {
       const response = await containerApi.create();
       
       if (response.success && response.data) {
-        const container = response.data;
+        // The backend returns a different structure, let's adapt it
+        const containerData = response.data;
+        const container: Container = {
+          id: containerData.container_id || containerData.session_id,
+          userId: 'demo-user', // Mock user ID
+          dockerId: containerData.container_id,
+          status: containerData.status || 'running',
+          createdAt: new Date(),
+          lastActivity: new Date()
+        };
+        
         addContainer(container);
         setCurrentContainer(container);
         setContainerId(container.id);
@@ -39,6 +55,7 @@ export function useContainer() {
       console.error('Container creation error:', error);
       return null;
     } finally {
+      isCreatingRef.current = false;
       setLoading(false);
     }
   }, [addContainer, setCurrentContainer, setContainerId, setLoading, setError]);
@@ -107,7 +124,7 @@ export function useContainer() {
       if (response.success && response.data) {
         // You'd need to add a setContainers action to the store
         // For now, we'll add them individually
-        response.data.forEach(container => {
+        response.data.forEach((container: any) => {
           addContainer(container);
         });
       } else {
@@ -126,12 +143,12 @@ export function useContainer() {
     setContainerId(container.id);
   }, [setCurrentContainer, setContainerId]);
 
-  // Auto-create container if none exists
+  // Auto-create container if none exists - REMOVED DEPENDENCY ON createContainer
   useEffect(() => {
-    if (containers.length === 0 && !currentContainer) {
+    if (containers.length === 0 && !currentContainer && !isCreatingRef.current) {
       createContainer();
     }
-  }, [containers.length, currentContainer, createContainer]);
+  }, [containers.length, currentContainer]); // Removed createContainer from deps
 
   return {
     currentContainer,

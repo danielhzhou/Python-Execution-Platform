@@ -1,123 +1,170 @@
 """
-Supabase Authentication middleware and utilities
+Authentication functions using Supabase Auth
 """
 import logging
 from typing import Optional
-import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from supabase import Client
 
-from app.core.config import settings
+from app.core.supabase import get_supabase_client
+from app.models.container import User
 
 logger = logging.getLogger(__name__)
 
-# HTTP Bearer security scheme
+# Security scheme for JWT token
 security = HTTPBearer()
 
 
-class AuthUser(BaseModel):
-    """Authenticated user information from JWT"""
-    id: str
-    email: Optional[str] = None
-    role: str = "authenticated"
-    app_metadata: dict = {}
-    user_metadata: dict = {}
-
-
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> AuthUser:
+async def get_current_user_id(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    supabase: Client = Depends(get_supabase_client)
+) -> str:
     """
-    Extract and verify user information from Supabase JWT token
+    Extract and validate user ID from JWT token
     """
     try:
+        # Get the JWT token from the Authorization header
         token = credentials.credentials
         
-        # Decode and verify JWT
-        payload = jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated"
-        )
+        # Verify the token with Supabase
+        user_response = supabase.auth.get_user(token)
         
-        # Extract user information
-        user_id = payload.get("sub")
-        if not user_id:
+        if not user_response.user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: missing user ID"
+                detail="Invalid authentication token"
             )
         
-        # Create or update user record in database
-        email = payload.get("email")
-        if email:
-            # Import here to avoid circular imports
-            from app.services.database_service import db_service
-            
-            # Extract user metadata
-            user_metadata = payload.get("user_metadata", {})
-            full_name = user_metadata.get("full_name") or user_metadata.get("name")
-            avatar_url = user_metadata.get("avatar_url") or user_metadata.get("picture")
-            
-            try:
-                await db_service.create_or_update_user(
-                    user_id=user_id,
-                    email=email,
-                    full_name=full_name,
-                    avatar_url=avatar_url
-                )
-            except Exception as db_error:
-                logger.warning(f"Failed to sync user to database: {db_error}")
-                # Don't fail authentication if database sync fails
+        return user_response.user.id
         
-        return AuthUser(
-            id=user_id,
-            email=email,
-            role=payload.get("role", "authenticated"),
-            app_metadata=payload.get("app_metadata", {}),
-            user_metadata=payload.get("user_metadata", {})
-        )
-        
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired"
-        )
-    except jwt.InvalidTokenError as e:
-        logger.warning(f"Invalid JWT token: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
-        )
     except Exception as e:
         logger.error(f"Authentication error: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication failed"
+            detail="Invalid authentication token"
         )
 
 
-async def get_current_user_id(user: AuthUser = Depends(get_current_user)) -> str:
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    supabase: Client = Depends(get_supabase_client)
+) -> User:
     """
-    Get the current user's ID (simplified dependency for routes that only need user ID)
-    """
-    return user.id
-
-
-def verify_jwt_token(token: str) -> Optional[dict]:
-    """
-    Verify a JWT token and return the payload
-    Used for cases where you need to verify tokens outside of FastAPI dependencies
+    Get the current authenticated user
     """
     try:
-        payload = jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated"
+        # Get the JWT token from the Authorization header
+        token = credentials.credentials
+        
+        # Verify the token with Supabase
+        user_response = supabase.auth.get_user(token)
+        
+        if not user_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token"
+            )
+        
+        supabase_user = user_response.user
+        
+        # Check if user exists in our database, create if not
+        user_data = supabase.table("users").select("*").eq("id", supabase_user.id).execute()
+        
+        if not user_data.data:
+            # Create user in our database
+            new_user = {
+                "id": supabase_user.id,
+                "email": supabase_user.email,
+                "full_name": supabase_user.user_metadata.get("full_name"),
+                "avatar_url": supabase_user.user_metadata.get("avatar_url")
+            }
+            supabase.table("users").insert(new_user).execute()
+            user_record = new_user
+        else:
+            user_record = user_data.data[0]
+        
+        return User(**user_record)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token"
         )
-        return payload
-    except jwt.InvalidTokenError:
-        return None 
+
+
+async def create_user_account(email: str, password: str, full_name: Optional[str] = None) -> dict:
+    """
+    Create a new user account
+    """
+    supabase = get_supabase_client()
+    
+    try:
+        # Create user with Supabase Auth
+        auth_response = supabase.auth.sign_up({
+            "email": email,
+            "password": password,
+            "options": {
+                "data": {
+                    "full_name": full_name
+                }
+            }
+        })
+        
+        if auth_response.user:
+            # User will be automatically created in our database when they first authenticate
+            return {
+                "user_id": auth_response.user.id,
+                "email": auth_response.user.email,
+                "message": "User created successfully. Please check your email for verification."
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to create user account"
+            )
+            
+    except Exception as e:
+        logger.error(f"User creation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to create user account: {str(e)}"
+        )
+
+
+async def authenticate_user(email: str, password: str) -> dict:
+    """
+    Authenticate user and return session info
+    """
+    supabase = get_supabase_client()
+    
+    try:
+        # Sign in with Supabase Auth
+        auth_response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+        
+        if auth_response.user and auth_response.session:
+            return {
+                "user": auth_response.user,
+                "session": auth_response.session,
+                "access_token": auth_response.session.access_token
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        ) 
