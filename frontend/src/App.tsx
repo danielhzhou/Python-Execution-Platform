@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 
@@ -14,7 +14,6 @@ import './App.css';
 
 function App() {
   const { 
-    user, 
     isAuthenticated, 
     loading, 
     error, 
@@ -106,7 +105,7 @@ function App() {
           )}
 
           {/* Header */}
-          <Header onSubmit={() => setShowSubmissionDialog(true)} />
+          <Header className="border-b" />
           
           {/* Main Layout */}
           <div className="flex h-[calc(100vh-4rem)]">
@@ -134,7 +133,7 @@ function App() {
           {/* Submission Dialog */}
           <SubmissionDialog
             open={showSubmissionDialog}
-            onClose={() => setShowSubmissionDialog(false)}
+            onOpenChange={setShowSubmissionDialog}
           />
         </div>
       </ErrorBoundary>

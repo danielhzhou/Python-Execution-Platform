@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { projectApi } from '../../lib/api';
@@ -53,7 +53,7 @@ export function SubmissionDialog({ open, onOpenChange }: SubmissionDialogProps) 
         // Show success message (you could use a toast here)
         console.log('Code submitted successfully!');
       } else {
-        setError(response.error || 'Failed to submit code');
+        setError(typeof response.error === 'string' ? response.error : 'Failed to submit code');
       }
     } catch (error) {
       setError('Failed to submit code');
@@ -216,4 +216,4 @@ export function SubmissionDialog({ open, onOpenChange }: SubmissionDialogProps) 
       </DialogContent>
     </Dialog>
   );
-} 
+}    
