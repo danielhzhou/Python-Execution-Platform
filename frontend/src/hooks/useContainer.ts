@@ -8,6 +8,7 @@ export function useContainer() {
   const {
     currentContainer,
     containers,
+    isAuthenticated,
     setCurrentContainer,
     addContainer,
     updateContainer,
@@ -143,12 +144,12 @@ export function useContainer() {
     setContainerId(container.id);
   }, [setCurrentContainer, setContainerId]);
 
-  // Auto-create container if none exists - REMOVED DEPENDENCY ON createContainer
+  // Auto-create container if none exists - only after authentication
   useEffect(() => {
-    if (containers.length === 0 && !currentContainer && !isCreatingRef.current) {
+    if (isAuthenticated && containers.length === 0 && !currentContainer && !isCreatingRef.current) {
       createContainer();
     }
-  }, [containers.length, currentContainer]); // Removed createContainer from deps
+  }, [isAuthenticated, containers.length, currentContainer]); // Added isAuthenticated dependency
 
   return {
     currentContainer,
