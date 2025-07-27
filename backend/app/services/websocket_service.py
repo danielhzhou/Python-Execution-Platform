@@ -238,33 +238,24 @@ class WebSocketService:
         self.manager = WebSocketManager()
         
     async def handle_terminal_connection(self, websocket: WebSocket, session_id: str):
-        """Handle a new terminal WebSocket connection for local development"""
+        """Handle a new terminal WebSocket connection"""
         try:
-            # For local development, we don't need to verify database session
-            # Just create a terminal session directly
-            
+            # Verify session exists in database
+            container_session = await db_service.get_terminal_session(session_id)
+            if not container_session:
+                await websocket.close(code=1008, reason="Invalid session ID")
+                return
+                
             # Create terminal session if it doesn't exist
             terminal_session = await terminal_service.get_terminal_session(session_id)
             if not terminal_session:
-                # Create local terminal session with current working directory
-                import os
-                working_dir = os.getcwd()
-                success = await terminal_service.create_terminal_session(session_id, working_dir)
+                success = await terminal_service.create_terminal_session(session_id)
                 if not success:
                     await websocket.close(code=1011, reason="Failed to create terminal session")
                     return
                     
             # Connect WebSocket
             await self.manager.connect(websocket, session_id)
-            
-            # Send welcome message
-            await websocket.send_text(json.dumps({
-                "type": "connected",
-                "data": {
-                    "message": "Terminal connected successfully",
-                    "session_id": session_id
-                }
-            }))
             
             # Start output streaming in background
             output_task = asyncio.create_task(

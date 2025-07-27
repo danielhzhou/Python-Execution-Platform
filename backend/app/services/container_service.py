@@ -119,9 +119,23 @@ class ContainerService:
         try:
             # Create database session first
             logger.info("💾 Creating database session record...")
+            
+            # Handle project_id - convert to UUID or set to None
+            processed_project_id = None
+            if project_id:
+                try:
+                    # Try to parse as UUID
+                    import uuid as uuid_module
+                    uuid_module.UUID(project_id)
+                    processed_project_id = project_id
+                except ValueError:
+                    # If not a valid UUID, set to None
+                    logger.warning(f"Invalid project_id UUID format: {project_id}, setting to None")
+                    processed_project_id = None
+            
             session = await db_service.create_terminal_session(
                 user_id=user_id,
-                project_id=project_id,
+                project_id=processed_project_id,
                 container_id=container_id
             )
             logger.info(f"✅ Database session created: {session.id}")
@@ -209,7 +223,12 @@ class ContainerService:
         if not session:
             return None
             
-        container = self.active_containers.get(session.container_id)
+        # Look up container by session ID (how containers are stored)
+        container = self.active_containers.get(session_id)
+        if not container and hasattr(session, 'id'):
+            # Try with the UUID from the session object
+            container = self.active_containers.get(session.id)
+        
         if not container:
             return None
             
@@ -250,8 +269,14 @@ class ContainerService:
             return False
         
         # Try to clean up Docker container if Docker is available
-        if self.docker and session.container_id in self.active_containers:
-            container = self.active_containers[session.container_id]
+        # Look up container by session ID (how containers are stored)
+        container = None
+        if self.docker:
+            container = self.active_containers.get(session_id)
+            if not container and hasattr(session, 'id'):
+                container = self.active_containers.get(session.id)
+        
+        if container:
             try:
                 logger.info(f"Terminating container {container.name}")
                 
@@ -263,7 +288,11 @@ class ContainerService:
                 container.remove(volumes=True)
                 
                 # Clean up runtime references
-                del self.active_containers[session.container_id]
+                # Remove from active_containers using the session ID key
+                if session_id in self.active_containers:
+                    del self.active_containers[session_id]
+                elif hasattr(session, 'id') and session.id in self.active_containers:
+                    del self.active_containers[session.id]
                 
                 logger.info(f"Container {container.name} terminated successfully")
             except DockerException as e:
@@ -285,7 +314,12 @@ class ContainerService:
         if not session:
             return False
             
-        container = self.active_containers.get(session.container_id)
+        # Look up container by session ID (how containers are stored)
+        container = self.active_containers.get(session_id)
+        if not container and hasattr(session, 'id'):
+            # Try with the UUID from the session object
+            container = self.active_containers.get(session.id)
+        
         if not container:
             return False
             
@@ -304,7 +338,12 @@ class ContainerService:
         if not session:
             return False
             
-        container = self.active_containers.get(session.container_id)
+        # Look up container by session ID (how containers are stored)
+        container = self.active_containers.get(session_id)
+        if not container and hasattr(session, 'id'):
+            # Try with the UUID from the session object
+            container = self.active_containers.get(session.id)
+        
         if not container:
             return False
             
