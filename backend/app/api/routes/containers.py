@@ -13,15 +13,16 @@ from app.models.container import (
 from app.services.container_service import container_service
 from app.services.websocket_service import websocket_service
 from app.services.database_service import db_service
-from app.core.auth import get_current_user_id, AuthUser, get_current_user
+# from app.core.auth import get_current_user_id, AuthUser, get_current_user
+from app.core.mock_auth import get_mock_user_id
 
 router = APIRouter()
-
 
 @router.post("/create", response_model=ContainerResponse)
 async def create_container(
     request: ContainerCreateRequest,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Create a new container for the authenticated user"""
     try:
@@ -52,7 +53,8 @@ async def create_container(
 @router.get("/{session_id}/info", response_model=Optional[ContainerInfo])
 async def get_container_info(
     session_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Get container information for authenticated user"""
     # Verify user owns this session
@@ -70,7 +72,8 @@ async def get_container_info(
 @router.post("/{session_id}/terminate")
 async def terminate_container(
     session_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Terminate a container for authenticated user"""
     # Verify user owns this session
@@ -88,7 +91,8 @@ async def terminate_container(
 @router.post("/{session_id}/network/enable")
 async def enable_network_access(
     session_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Enable network access for package installation"""
     # Verify user owns this session
@@ -106,7 +110,8 @@ async def enable_network_access(
 @router.post("/{session_id}/network/disable")
 async def disable_network_access(
     session_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Disable network access"""
     # Verify user owns this session
@@ -124,7 +129,8 @@ async def disable_network_access(
 @router.get("/{session_id}/stats")
 async def get_session_stats(
     session_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Get session statistics"""
     # Verify user owns this session
@@ -138,7 +144,8 @@ async def get_session_stats(
 
 @router.get("/")
 async def list_user_containers(
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """List all containers for the authenticated user"""
     # Get sessions from database

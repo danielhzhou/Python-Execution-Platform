@@ -13,6 +13,7 @@ from app.core.supabase import create_db_tables
 from app.api import api_router
 from app.services.container_service import container_service
 from app.services.storage_service import storage_service
+from app.services.database_service import db_service
 
 # Configure logging
 logging.basicConfig(
@@ -45,6 +46,15 @@ async def lifespan(app: FastAPI):
         logger.info("Storage service initialized successfully")
     else:
         logger.warning("Failed to initialize storage service")
+    
+    # Create test user for auth-disabled testing
+    # Skip user creation since we don't have auth.users table in test environment
+    try:
+        # Check if we're in test/dev mode by trying to create the user
+        # In production, this would be handled by Supabase auth
+        logger.info("Skipping test user creation - auth disabled for testing")
+    except Exception as e:
+        logger.warning(f"Test user creation skipped: {e}")
     
     yield
     

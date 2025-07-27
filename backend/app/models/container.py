@@ -209,6 +209,8 @@ class TerminalOutput(BaseModel):
 
 class ContainerCreateRequest(BaseModel):
     """Request to create a new container"""
+    model_config = {"extra": "forbid"}  # Forbid extra fields
+    
     project_id: Optional[str] = None
     project_name: Optional[str] = None
     initial_files: Optional[Dict[str, str]] = None

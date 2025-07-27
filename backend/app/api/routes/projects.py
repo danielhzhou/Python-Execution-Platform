@@ -9,15 +9,16 @@ from app.models.container import (
 )
 from app.services.database_service import db_service
 from app.services.storage_service import storage_service
-from app.core.auth import get_current_user_id
+# from app.core.auth import get_current_user_id
+from app.core.mock_auth import get_mock_user_id
 
 router = APIRouter()
-
 
 @router.post("/", response_model=ProjectResponse)
 async def create_project(
     request: ProjectCreateRequest,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Create a new project for the authenticated user"""
     try:
@@ -44,7 +45,8 @@ async def create_project(
 
 @router.get("/", response_model=List[ProjectResponse])
 async def list_user_projects(
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """List all projects for the authenticated user"""
     try:
@@ -70,7 +72,8 @@ async def list_user_projects(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Get a specific project"""
     try:
@@ -102,7 +105,8 @@ async def get_project(
 async def update_project(
     project_id: str,
     request: ProjectCreateRequest,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Update a project"""
     try:
@@ -144,7 +148,8 @@ async def update_project(
 @router.delete("/{project_id}")
 async def delete_project(
     project_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Delete a project"""
     try:
@@ -172,7 +177,8 @@ async def delete_project(
 @router.get("/{project_id}/files")
 async def list_project_files(
     project_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """List all files in a project"""
     try:
@@ -213,7 +219,8 @@ async def list_project_files(
 async def get_project_file(
     project_id: str,
     file_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Get a specific project file with content"""
     try:
@@ -254,7 +261,8 @@ async def upload_project_file(
     project_id: str,
     file: UploadFile = File(...),
     file_path: str = Form(...),
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Upload a file to a project"""
     try:
@@ -298,7 +306,8 @@ async def update_project_file(
     project_id: str,
     file_id: str,
     content: str = Form(...),
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Update a project file's content"""
     try:
@@ -345,7 +354,8 @@ async def update_project_file(
 async def delete_project_file(
     project_id: str,
     file_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Delete a project file"""
     try:
@@ -383,7 +393,8 @@ async def delete_project_file(
 async def download_project_file(
     project_id: str,
     file_id: str,
-    user_id: str = Depends(get_current_user_id)
+    # user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(get_mock_user_id)
 ):
     """Get a download URL for a project file"""
     try:

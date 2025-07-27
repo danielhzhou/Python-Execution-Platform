@@ -69,7 +69,8 @@ class Settings(BaseSettings):
     
     model_config = {
         "env_file": [".env", "../.env"],  # Look in current dir and parent dir
-        "case_sensitive": True
+        "case_sensitive": True,
+        "extra": "ignore"  # Ignore extra environment variables
     }
 
 

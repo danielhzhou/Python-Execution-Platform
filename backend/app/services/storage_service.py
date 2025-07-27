@@ -176,11 +176,17 @@ class StorageService:
             # List buckets to check if our bucket exists
             result = self.supabase.storage.list_buckets()
             
-            if result.error:
+            # Handle both error response and direct list response
+            if hasattr(result, 'error') and result.error:
                 logger.error(f"Failed to list buckets: {result.error}")
                 return False
             
-            buckets = result.data or []
+            # Handle direct list response (some versions return list directly)
+            if isinstance(result, list):
+                buckets = result
+            else:
+                buckets = result.data or []
+                
             bucket_names = [bucket.get("name") for bucket in buckets]
             
             if self.bucket_name not in bucket_names:
@@ -203,7 +209,7 @@ class StorageService:
                     }
                 )
                 
-                if create_result.error:
+                if hasattr(create_result, 'error') and create_result.error:
                     logger.error(f"Failed to create bucket: {create_result.error}")
                     return False
                 
