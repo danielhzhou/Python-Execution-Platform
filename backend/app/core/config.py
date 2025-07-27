@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_KEY: str
     SUPABASE_JWT_SECRET: str  # For JWT verification
     
+    # Redis Configuration
+    REDIS_URL: str = "redis://localhost:6379"
+    
     # Docker & Container Management
     DOCKER_HOST: str = "unix:///var/run/docker.sock"
     CONTAINER_IMAGE: str = "python-execution-sandbox:latest"
