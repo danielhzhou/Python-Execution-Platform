@@ -165,9 +165,7 @@ async def create_user_account(email: str, password: str, full_name: Optional[str
             "options": {
                 "data": {
                     "full_name": full_name
-                },
-                # Add proper redirect URL for email confirmation
-                "email_redirect_to": "http://localhost:5173"
+                }
             }
         })
         
@@ -176,8 +174,7 @@ async def create_user_account(email: str, password: str, full_name: Optional[str
             return {
                 "user_id": auth_response.user.id,
                 "email": auth_response.user.email,
-                "message": "Registration successful! Please check your email for verification link.",
-                "email_confirmation_required": True
+                "message": "Registration successful! You can now log in."
             }
         else:
             raise HTTPException(
@@ -219,11 +216,6 @@ async def authenticate_user(email: str, password: str) -> dict:
         })
         
         if auth_response.user and auth_response.session:
-            # Check if email is confirmed (for better user experience)
-            if not auth_response.user.email_confirmed_at:
-                # Still allow login but inform about email confirmation
-                logger.warning(f"User {email} logged in without email confirmation")
-            
             return {
                 "user": auth_response.user,
                 "session": auth_response.session,
@@ -244,8 +236,6 @@ async def authenticate_user(email: str, password: str) -> dict:
         # Provide more specific error messages
         if "Invalid login credentials" in error_message:
             detail = "Invalid email or password. Please check your credentials."
-        elif "Email not confirmed" in error_message:
-            detail = "Please verify your email address before logging in. Check your inbox for a verification link."
         elif "Too many requests" in error_message:
             detail = "Too many login attempts. Please wait a moment and try again."
         else:
@@ -286,4 +276,4 @@ def get_cache_stats() -> Dict:
         'cache_hit_ratio': valid_entries / max(len(_user_cache), 1),
         'ttl_seconds': USER_CACHE_TTL,
         'sync_interval_seconds': USER_SYNC_INTERVAL
-    } 
+    }  

@@ -37,12 +37,12 @@ export function AuthForm({}: AuthFormProps = {}) {
       } else {
         const response = await authApi.register(email, password, fullName);
         if (response.success) {
-          setMessage('Registration successful! Please check your email for verification.');
+          setMessage('Registration successful! You can now log in.');
           // After successful registration, switch to login
           setTimeout(() => {
             setIsLogin(true);
             setMessage('');
-          }, 3000);
+          }, 2000);
         } else {
           setError(typeof response.error === 'string' ? response.error : 'Registration failed');
         }
@@ -212,4 +212,4 @@ export function AuthForm({}: AuthFormProps = {}) {
       </Card>
     </div>
   );
-}      
+}            
