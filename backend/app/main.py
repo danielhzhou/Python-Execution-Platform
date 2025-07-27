@@ -47,15 +47,6 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Failed to initialize storage service")
     
-    # Create test user for auth-disabled testing
-    # Skip user creation since we don't have auth.users table in test environment
-    try:
-        # Check if we're in test/dev mode by trying to create the user
-        # In production, this would be handled by Supabase auth
-        logger.info("Skipping test user creation - auth disabled for testing")
-    except Exception as e:
-        logger.warning(f"Test user creation skipped: {e}")
-    
     yield
     
     # Shutdown

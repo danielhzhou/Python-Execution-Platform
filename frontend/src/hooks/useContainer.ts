@@ -35,7 +35,7 @@ export function useContainer() {
         const containerData = response.data;
         const container: Container = {
           id: containerData.container_id || containerData.session_id,
-          userId: 'demo-user', // Mock user ID
+          userId: containerData.user_id || 'unknown', // Will be set by backend
           dockerId: containerData.container_id,
           status: containerData.status || 'running',
           createdAt: new Date(),

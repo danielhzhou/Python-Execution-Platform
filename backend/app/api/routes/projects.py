@@ -1,31 +1,31 @@
 """
 Project management API routes
 """
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
-from typing import List, Optional
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from typing import List, Optional, Dict, Any
+from datetime import datetime
 
 from app.models.container import (
-    ProjectCreateRequest, ProjectResponse, Project
+    ProjectCreateRequest, ProjectResponse, SubmissionCreateRequest, 
+    SubmissionResponse, User, Project, Submission
 )
 from app.services.database_service import db_service
 from app.services.storage_service import storage_service
-# from app.core.auth import get_current_user_id
-from app.core.mock_auth import get_mock_user_id
+from app.core.auth import get_current_user_id
 
 router = APIRouter()
 
 @router.post("/", response_model=ProjectResponse)
 async def create_project(
     request: ProjectCreateRequest,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Create a new project for the authenticated user"""
     try:
         project = await db_service.create_project(
             name=request.name,
-            owner_id=user_id,
             description=request.description,
+            owner_id=user_id,
             is_public=request.is_public
         )
         
@@ -45,13 +45,11 @@ async def create_project(
 
 @router.get("/", response_model=List[ProjectResponse])
 async def list_user_projects(
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """List all projects for the authenticated user"""
     try:
         projects = await db_service.get_user_projects(user_id)
-        
         return [
             ProjectResponse(
                 id=project.id,
@@ -64,7 +62,6 @@ async def list_user_projects(
             )
             for project in projects
         ]
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list projects: {str(e)}")
 
@@ -72,8 +69,7 @@ async def list_user_projects(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: str,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get a specific project"""
     try:
@@ -81,7 +77,7 @@ async def get_project(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        # Check if user owns the project or it's public
+        # Check if user has access to this project
         if project.owner_id != user_id and not project.is_public:
             raise HTTPException(status_code=403, detail="Access denied")
         
@@ -105,29 +101,24 @@ async def get_project(
 async def update_project(
     project_id: str,
     request: ProjectCreateRequest,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Update a project"""
     try:
-        # Check if project exists and user owns it
         project = await db_service.get_project(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
+        # Check if user owns this project
         if project.owner_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Update project
         updated_project = await db_service.update_project(
-            project_id,
+            project_id=project_id,
             name=request.name,
             description=request.description,
             is_public=request.is_public
         )
-        
-        if not updated_project:
-            raise HTTPException(status_code=500, detail="Failed to update project")
         
         return ProjectResponse(
             id=updated_project.id,
@@ -148,24 +139,19 @@ async def update_project(
 @router.delete("/{project_id}")
 async def delete_project(
     project_id: str,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
     """Delete a project"""
     try:
-        # Check if project exists and user owns it
         project = await db_service.get_project(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
+        # Check if user owns this project
         if project.owner_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Delete project
-        success = await db_service.delete_project(project_id)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to delete project")
-        
+        await db_service.delete_project(project_id)
         return {"message": "Project deleted successfully"}
         
     except HTTPException:
@@ -174,125 +160,43 @@ async def delete_project(
         raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
 
 
-@router.get("/{project_id}/files")
-async def list_project_files(
-    project_id: str,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
-):
-    """List all files in a project"""
-    try:
-        # Check if project exists and user has access
-        project = await db_service.get_project(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        if project.owner_id != user_id and not project.is_public:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get project files
-        files = await db_service.get_project_files(project_id)
-        
-        return {
-            "project_id": project_id,
-            "files": [
-                {
-                    "id": file.id,
-                    "file_path": file.file_path,
-                    "file_name": file.file_name,
-                    "file_size": file.file_size,
-                    "mime_type": file.mime_type,
-                    "created_at": file.created_at,
-                    "updated_at": file.updated_at
-                }
-                for file in files
-            ]
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list project files: {str(e)}")
-
-
-@router.get("/{project_id}/files/{file_id}")
-async def get_project_file(
-    project_id: str,
-    file_id: str,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
-):
-    """Get a specific project file with content"""
-    try:
-        # Check if project exists and user has access
-        project = await db_service.get_project(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        if project.owner_id != user_id and not project.is_public:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get project file
-        file = await db_service.get_project_file(file_id)
-        if not file or file.project_id != project_id:
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        return {
-            "id": file.id,
-            "project_id": file.project_id,
-            "file_path": file.file_path,
-            "file_name": file.file_name,
-            "content": file.content,
-            "storage_path": file.storage_path,
-            "file_size": file.file_size,
-            "mime_type": file.mime_type,
-            "created_at": file.created_at,
-            "updated_at": file.updated_at
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get project file: {str(e)}")
-
-
-@router.post("/{project_id}/files/upload")
+@router.post("/{project_id}/files")
 async def upload_project_file(
     project_id: str,
     file: UploadFile = File(...),
-    file_path: str = Form(...),
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
+    file_path: str = "",
+    user_id: str = Depends(get_current_user_id)
 ):
     """Upload a file to a project"""
     try:
-        # Check if project exists and user owns it
         project = await db_service.get_project(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
+        # Check if user owns this project
         if project.owner_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Read file content
-        file_content = await file.read()
+        content = await file.read()
         
-        # Upload to storage
-        storage_path = await storage_service.upload_project_file(
+        # Save file to project
+        project_file = await db_service.create_project_file(
             project_id=project_id,
-            file_path=file_path,
-            file_content=file_content,
-            content_type=file.content_type or "application/octet-stream"
+            file_path=file_path or file.filename,
+            file_name=file.filename,
+            content=content.decode('utf-8') if file.content_type.startswith('text/') else None,
+            mime_type=file.content_type,
+            file_size=len(content)
         )
         
-        if not storage_path:
-            raise HTTPException(status_code=500, detail="Failed to upload file")
-        
         return {
-            "message": "File uploaded successfully",
-            "file_path": file_path,
-            "storage_path": storage_path,
-            "file_size": len(file_content)
+            "id": project_file.id,
+            "file_path": project_file.file_path,
+            "file_name": project_file.file_name,
+            "mime_type": project_file.mime_type,
+            "file_size": project_file.file_size,
+            "created_at": project_file.created_at
         }
         
     except HTTPException:
@@ -301,132 +205,221 @@ async def upload_project_file(
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 
-@router.put("/{project_id}/files/{file_id}")
-async def update_project_file(
+@router.get("/{project_id}/files")
+async def list_project_files(
     project_id: str,
-    file_id: str,
-    content: str = Form(...),
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
+    user_id: str = Depends(get_current_user_id)
 ):
-    """Update a project file's content"""
+    """List files in a project"""
     try:
-        # Check if project exists and user owns it
         project = await db_service.get_project(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        if project.owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get and verify file
-        file = await db_service.get_project_file(file_id)
-        if not file or file.project_id != project_id:
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        # Update file content
-        if file.storage_path:
-            # File is in storage, update storage
-            storage_path = await storage_service.upload_text_file(
-                project_id=project_id,
-                file_path=file.file_path,
-                content=content
-            )
-            if not storage_path:
-                raise HTTPException(status_code=500, detail="Failed to update file in storage")
-        else:
-            # File content is in database, update database
-            await db_service.update_project_file(
-                file_id,
-                content=content,
-                file_size=len(content.encode('utf-8'))
-            )
-        
-        return {"message": "File updated successfully"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update file: {str(e)}")
-
-
-@router.delete("/{project_id}/files/{file_id}")
-async def delete_project_file(
-    project_id: str,
-    file_id: str,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
-):
-    """Delete a project file"""
-    try:
-        # Check if project exists and user owns it
-        project = await db_service.get_project(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        if project.owner_id != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get and verify file
-        file = await db_service.get_project_file(file_id)
-        if not file or file.project_id != project_id:
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        # Delete from storage if exists
-        if file.storage_path:
-            await storage_service.delete_project_file(project_id, file.file_path)
-        
-        # Delete from database
-        success = await db_service.delete_project_file(file_id)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to delete file")
-        
-        return {"message": "File deleted successfully"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
-
-
-@router.get("/{project_id}/files/{file_id}/download")
-async def download_project_file(
-    project_id: str,
-    file_id: str,
-    # user_id: str = Depends(get_current_user_id)
-    user_id: str = Depends(get_mock_user_id)
-):
-    """Get a download URL for a project file"""
-    try:
-        # Check if project exists and user has access
-        project = await db_service.get_project(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
+        # Check if user has access to this project
         if project.owner_id != user_id and not project.is_public:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Get file
-        file = await db_service.get_project_file(file_id)
-        if not file or file.project_id != project_id:
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        if file.storage_path:
-            # File is in storage, get signed URL
-            signed_url = await storage_service.get_file_url(project_id, file.file_path)
-            if not signed_url:
-                raise HTTPException(status_code=500, detail="Failed to generate download URL")
-            
-            return {"download_url": signed_url, "expires_in": 3600}
-        else:
-            # File content is in database, return directly
-            return {
-                "content": file.content,
-                "file_name": file.file_name,
-                "mime_type": file.mime_type
+        files = await db_service.get_project_files(project_id)
+        return [
+            {
+                "id": f.id,
+                "file_path": f.file_path,
+                "file_name": f.file_name,
+                "mime_type": f.mime_type,
+                "file_size": f.file_size,
+                "created_at": f.created_at,
+                "updated_at": f.updated_at
             }
+            for f in files
+        ]
         
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get download URL: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
+
+
+# Submission endpoints
+@router.post("/submissions", response_model=SubmissionResponse)
+async def create_submission(
+    request: SubmissionCreateRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Create a new code submission"""
+    try:
+        # Verify user owns the project
+        project = await db_service.get_project(request.project_id)
+        if not project or project.owner_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        submission = await db_service.create_submission(
+            owner_id=user_id,
+            project_id=request.project_id,
+            title=request.title,
+            description=request.description,
+            file_paths=request.file_paths
+        )
+        
+        return SubmissionResponse(
+            id=submission.id,
+            user_id=submission.owner_id,
+            project_id=submission.project_id,
+            title=submission.title,
+            description=submission.description,
+            status=submission.status,
+            created_at=submission.created_at,
+            submitted_at=submission.submitted_at
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create submission: {str(e)}")
+
+
+@router.get("/submissions")
+async def list_submissions(
+    status: Optional[str] = None,
+    user_id: str = Depends(get_current_user_id)
+):
+    """List submissions (for reviewers) or user's own submissions"""
+    try:
+        # For now, return all submissions - in production you'd check reviewer permissions
+        submissions = await db_service.get_submissions(status=status)
+        
+        return [
+            {
+                "id": s.id,
+                "user_id": s.owner_id,
+                "project_id": s.project_id,
+                "title": s.title,
+                "description": s.description,
+                "status": s.status,
+                "created_at": s.created_at,
+                "submitted_at": s.submitted_at,
+                "reviewed_at": s.reviewed_at
+            }
+            for s in submissions
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list submissions: {str(e)}")
+
+
+@router.get("/submissions/{submission_id}")
+async def get_submission(
+    submission_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Get a specific submission"""
+    try:
+        submission = await db_service.get_submission(submission_id)
+        if not submission:
+            raise HTTPException(status_code=404, detail="Submission not found")
+        
+        # Check access - owner or reviewer can view
+        # For now, allow any authenticated user to view
+        
+        # Get submission files
+        files = await db_service.get_submission_files(submission_id)
+        
+        return {
+            "id": submission.id,
+            "user_id": submission.owner_id,
+            "project_id": submission.project_id,
+            "title": submission.title,
+            "description": submission.description,
+            "status": submission.status,
+            "created_at": submission.created_at,
+            "submitted_at": submission.submitted_at,
+            "reviewed_at": submission.reviewed_at,
+            "files": [
+                {
+                    "id": f.id,
+                    "file_path": f.file_path,
+                    "file_name": f.file_name,
+                    "content": f.content,
+                    "diff": f.diff
+                }
+                for f in files
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get submission: {str(e)}")
+
+
+@router.post("/submissions/{submission_id}/review")
+async def review_submission(
+    submission_id: str,
+    review_data: Dict[str, Any],
+    user_id: str = Depends(get_current_user_id)
+):
+    """Review a submission (approve/reject)"""
+    try:
+        submission = await db_service.get_submission(submission_id)
+        if not submission:
+            raise HTTPException(status_code=404, detail="Submission not found")
+        
+        # In production, check if user is a reviewer
+        
+        approved = review_data.get("approved", False)
+        feedback = review_data.get("feedback", "")
+        
+        # Update submission status
+        new_status = "approved" if approved else "rejected"
+        await db_service.update_submission_status(
+            submission_id=submission_id,
+            status=new_status,
+            reviewer_id=user_id
+        )
+        
+        # Add review comment
+        if feedback:
+            await db_service.create_submission_review(
+                submission_id=submission_id,
+                reviewer_id=user_id,
+                comment=feedback
+            )
+        
+        return {
+            "message": f"Submission {new_status}",
+            "status": new_status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to review submission: {str(e)}")
+
+
+@router.post("/submissions/{submission_id}/submit")
+async def submit_for_review(
+    submission_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Submit a draft for review"""
+    try:
+        submission = await db_service.get_submission(submission_id)
+        if not submission:
+            raise HTTPException(status_code=404, detail="Submission not found")
+        
+        # Check if user owns this submission
+        if submission.owner_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Update status to submitted
+        await db_service.update_submission_status(
+            submission_id=submission_id,
+            status="submitted"
+        )
+        
+        return {"message": "Submission sent for review"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to submit for review: {str(e)}") 
