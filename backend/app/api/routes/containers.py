@@ -1,39 +1,37 @@
 """
 Container management API routes
 """
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends, Query
+from typing import List, Optional
 
-from app.models.container import (
-    ContainerCreateRequest, 
-    ContainerResponse, 
-    ContainerInfo,
-    ContainerStatus
-)
-from app.services.container_service import container_service
-from app.services.websocket_service import websocket_service
-from app.services.database_service import db_service
 from app.core.auth import get_current_user_id
+from app.models.container import ContainerCreateRequest, ContainerResponse, TerminalSession
+from app.services.container_service import container_service
 
 router = APIRouter()
+
 
 @router.post("/create", response_model=ContainerResponse)
 async def create_container(
     request: ContainerCreateRequest,
+    replace_existing: bool = Query(False, description="Replace existing active container if one exists"),
     user_id: str = Depends(get_current_user_id)
 ):
-    """Create a new container for the authenticated user"""
+    """Create a new container for code execution"""
     try:
-        # Create container
+        # If replace_existing is True, cleanup any existing containers first
+        if replace_existing:
+            await cleanup_user_containers(user_id)
+        
         session = await container_service.create_container(
             user_id=user_id,
             project_id=request.project_id,
             project_name=request.project_name,
-            initial_files=request.initial_files
+            initial_files=request.initial_files or {}
         )
         
-        # Generate WebSocket URL
-        websocket_url = f"/api/ws/terminal/{session.id}"
+        # Generate WebSocket URL for terminal connection
+        websocket_url = f"ws://localhost:8000/api/containers/{session.id}/terminal"
         
         return ContainerResponse(
             session_id=session.id,
@@ -43,27 +41,68 @@ async def create_container(
         )
         
     except ValueError as e:
+        if "already has an active container" in str(e):
+            raise HTTPException(
+                status_code=409, 
+                detail={
+                    "error": "User already has an active container",
+                    "message": "You already have an active container. Please terminate it first or use replace_existing=true",
+                    "suggestion": "Try calling /api/containers/cleanup first, or add ?replace_existing=true to this request"
+                }
+            )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create container: {str(e)}")
 
 
-@router.get("/{session_id}/info", response_model=Optional[ContainerInfo])
+@router.get("/{session_id}/info", response_model=ContainerResponse)
 async def get_container_info(
     session_id: str,
     user_id: str = Depends(get_current_user_id)
 ):
-    """Get container information for authenticated user"""
-    # Verify user owns this session
-    session = await db_service.get_terminal_session(session_id)
-    if not session or session.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Container session not found")
-    
-    container_info = await container_service.get_container_info(session_id)
-    if not container_info:
-        raise HTTPException(status_code=404, detail="Container not found")
+    """Get information about a specific container"""
+    try:
+        session = await container_service.get_container_info(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Container not found")
         
-    return container_info
+        # Verify user owns this container
+        if session.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        websocket_url = f"ws://localhost:8000/api/containers/{session_id}/terminal"
+        
+        return ContainerResponse(
+            session_id=session.id,
+            container_id=session.container_id,
+            status=session.status,
+            websocket_url=websocket_url
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/", response_model=List[ContainerResponse])
+async def list_containers(user_id: str = Depends(get_current_user_id)):
+    """List all containers for the current user"""
+    try:
+        sessions = await container_service.list_user_containers(user_id)
+        
+        return [
+            ContainerResponse(
+                session_id=session.id,
+                container_id=session.container_id,
+                status=session.status,
+                websocket_url=f"ws://localhost:8000/api/containers/{session.id}/terminal"
+            )
+            for session in sessions
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{session_id}/terminate")
@@ -71,89 +110,84 @@ async def terminate_container(
     session_id: str,
     user_id: str = Depends(get_current_user_id)
 ):
-    """Terminate a container for authenticated user"""
-    # Verify user owns this session
-    session = await db_service.get_terminal_session(session_id)
-    if not session or session.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Container session not found")
-    
-    success = await container_service.terminate_container(session_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to terminate container")
+    """Terminate a specific container"""
+    try:
+        # Verify user owns this container
+        session = await container_service.get_container_info(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Container not found")
         
-    return {"message": "Container terminated successfully"}
-
-
-@router.post("/{session_id}/network/enable")
-async def enable_network_access(
-    session_id: str,
-    user_id: str = Depends(get_current_user_id)
-):
-    """Enable network access for package installation"""
-    # Verify user owns this session
-    session = await db_service.get_terminal_session(session_id)
-    if not session or session.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Container session not found")
-    
-    success = await container_service.enable_network_access(session_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to enable network access")
+        if session.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
         
-    return {"message": "Network access enabled"}
-
-
-@router.post("/{session_id}/network/disable")
-async def disable_network_access(
-    session_id: str,
-    user_id: str = Depends(get_current_user_id)
-):
-    """Disable network access"""
-    # Verify user owns this session
-    session = await db_service.get_terminal_session(session_id)
-    if not session or session.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Container session not found")
-    
-    success = await container_service.disable_network_access(session_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to disable network access")
+        success = await container_service.terminate_container(session_id)
         
-    return {"message": "Network access disabled"}
+        if success:
+            return {"message": "Container terminated successfully"}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to terminate container")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{session_id}/stats")
-async def get_session_stats(
-    session_id: str,
-    user_id: str = Depends(get_current_user_id)
-):
-    """Get session statistics"""
-    # Verify user owns this session
-    session = await db_service.get_terminal_session(session_id)
-    if not session or session.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Container session not found")
-    
-    stats = await websocket_service.get_session_stats(session_id)
-    return stats
+@router.post("/cleanup")
+async def cleanup_user_containers(user_id: str = Depends(get_current_user_id)):
+    """Cleanup/terminate all active containers for the current user"""
+    try:
+        from app.services.database_service import db_service
+        
+        # Get all active containers for the user
+        active_sessions = await db_service.get_user_terminal_sessions(user_id, active_only=True)
+        
+        terminated_count = 0
+        errors = []
+        
+        for session in active_sessions:
+            try:
+                success = await container_service.terminate_container(session.id)
+                if success:
+                    terminated_count += 1
+                else:
+                    errors.append(f"Failed to terminate container {session.id}")
+            except Exception as e:
+                errors.append(f"Error terminating container {session.id}: {str(e)}")
+        
+        response = {
+            "message": f"Cleanup completed. Terminated {terminated_count} containers.",
+            "terminated_count": terminated_count
+        }
+        
+        if errors:
+            response["errors"] = errors
+            response["message"] += f" {len(errors)} errors occurred."
+        
+        return response
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
 
 
-@router.get("/")
-async def list_user_containers(
-    user_id: str = Depends(get_current_user_id)
-):
-    """List all containers for the authenticated user"""
-    # Get sessions from database
-    sessions = await db_service.get_user_terminal_sessions(user_id)
-    user_sessions = []
-    
-    for session in sessions:
-        container_info = await container_service.get_container_info(session.id)
-        user_sessions.append({
-            "session_id": session.id,
-            "container_id": session.container_id,
-            "status": session.status,
-            "created_at": session.created_at,
-            "last_activity": session.last_activity,
-            "project_id": session.project_id,
-            "container_info": container_info.dict() if container_info else None
-        })
-    
-    return {"containers": user_sessions} 
+@router.get("/status")
+async def get_user_container_status(user_id: str = Depends(get_current_user_id)):
+    """Get current container status for the user"""
+    try:
+        from app.services.database_service import db_service
+        
+        # Get all sessions for the user
+        all_sessions = await db_service.get_user_terminal_sessions(user_id)
+        active_sessions = await db_service.get_user_terminal_sessions(user_id, active_only=True)
+        
+        return {
+            "user_id": user_id,
+            "total_containers": len(all_sessions),
+            "active_containers": len(active_sessions),
+            "can_create_new": len(active_sessions) == 0,
+            "active_container_ids": [session.id for session in active_sessions] if active_sessions else [],
+            "max_containers_per_user": 1  # From settings
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) 

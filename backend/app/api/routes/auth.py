@@ -1,7 +1,7 @@
 """
 Authentication API routes
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
@@ -80,4 +80,69 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 @router.post("/logout")
 async def logout_user():
     """Logout user (client should clear the token)"""
-    return {"message": "Logout successful. Please clear your access token."} 
+    return {"message": "Logout successful. Please clear your access token."}
+
+
+@router.get("/confirm")
+async def confirm_email(
+    token_hash: str = Query(..., description="Email confirmation token"),
+    type: str = Query(..., description="Confirmation type")
+):
+    """Handle email confirmation from Supabase"""
+    try:
+        from app.core.supabase import get_supabase_client
+        
+        supabase = get_supabase_client()
+        
+        # Verify the email confirmation token
+        result = supabase.auth.verify_otp({
+            "token_hash": token_hash,
+            "type": type
+        })
+        
+        if result.user:
+            return {
+                "message": "Email confirmed successfully! You can now log in.",
+                "user_id": result.user.id,
+                "email": result.user.email
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired confirmation token"
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Email confirmation failed: {str(e)}"
+        )
+
+
+@router.post("/resend-confirmation")
+async def resend_confirmation_email(request: dict):
+    """Resend email confirmation"""
+    try:
+        from app.core.supabase import get_supabase_client
+        
+        email = request.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required")
+        
+        supabase = get_supabase_client()
+        
+        result = supabase.auth.resend({
+            "type": "signup",
+            "email": email,
+            "options": {
+                "email_redirect_to": "http://localhost:5173"
+            }
+        })
+        
+        return {"message": "Confirmation email sent! Please check your inbox."}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to resend confirmation email: {str(e)}"
+        ) 

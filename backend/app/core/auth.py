@@ -9,6 +9,7 @@ from supabase import Client
 
 from app.core.supabase import get_supabase_client
 from app.models.container import User
+from app.services.database_service import db_service
 
 logger = logging.getLogger(__name__)
 
@@ -21,29 +22,10 @@ async def get_current_user_id(
     supabase: Client = Depends(get_supabase_client)
 ) -> str:
     """
-    Extract and validate user ID from JWT token
+    Get the current authenticated user ID
     """
-    try:
-        # Get the JWT token from the Authorization header
-        token = credentials.credentials
-        
-        # Verify the token with Supabase
-        user_response = supabase.auth.get_user(token)
-        
-        if not user_response.user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication token"
-            )
-        
-        return user_response.user.id
-        
-    except Exception as e:
-        logger.error(f"Authentication error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token"
-        )
+    user = await get_current_user(credentials, supabase)
+    return user.id
 
 
 async def get_current_user(
@@ -68,23 +50,27 @@ async def get_current_user(
         
         supabase_user = user_response.user
         
-        # Check if user exists in our database, create if not
-        user_data = supabase.table("users").select("*").eq("id", supabase_user.id).execute()
-        
-        if not user_data.data:
-            # Create user in our database
-            new_user = {
-                "id": supabase_user.id,
-                "email": supabase_user.email,
-                "full_name": supabase_user.user_metadata.get("full_name"),
-                "avatar_url": supabase_user.user_metadata.get("avatar_url")
-            }
-            supabase.table("users").insert(new_user).execute()
-            user_record = new_user
-        else:
-            user_record = user_data.data[0]
-        
-        return User(**user_record)
+        # Check if user exists in our local database, create if not
+        try:
+            user_record = await db_service.create_or_update_user(
+                user_id=supabase_user.id,
+                email=supabase_user.email,
+                full_name=supabase_user.user_metadata.get("full_name"),
+                avatar_url=supabase_user.user_metadata.get("avatar_url")
+            )
+            logger.info(f"User ensured in local database: {supabase_user.email}")
+            
+            return user_record
+            
+        except Exception as db_error:
+            logger.error(f"Database error while creating/fetching user: {db_error}")
+            # If database fails, still return a User object for the session
+            return User(
+                id=supabase_user.id,
+                email=supabase_user.email,
+                full_name=supabase_user.user_metadata.get("full_name"),
+                avatar_url=supabase_user.user_metadata.get("avatar_url")
+            )
         
     except HTTPException:
         raise
@@ -110,7 +96,9 @@ async def create_user_account(email: str, password: str, full_name: Optional[str
             "options": {
                 "data": {
                     "full_name": full_name
-                }
+                },
+                # Add proper redirect URL for email confirmation
+                "email_redirect_to": "http://localhost:5173"
             }
         })
         
@@ -119,7 +107,8 @@ async def create_user_account(email: str, password: str, full_name: Optional[str
             return {
                 "user_id": auth_response.user.id,
                 "email": auth_response.user.email,
-                "message": "User created successfully. Please check your email for verification."
+                "message": "Registration successful! Please check your email for verification link.",
+                "email_confirmation_required": True
             }
         else:
             raise HTTPException(
@@ -129,9 +118,21 @@ async def create_user_account(email: str, password: str, full_name: Optional[str
             
     except Exception as e:
         logger.error(f"User creation error: {e}")
+        error_message = str(e)
+        
+        # Provide more specific error messages for common issues
+        if "Email address" in error_message and "invalid" in error_message:
+            detail = "Invalid email address format. Please use a valid email."
+        elif "User already registered" in error_message:
+            detail = "An account with this email already exists. Please try logging in instead."
+        elif "Password should be at least" in error_message:
+            detail = "Password must be at least 6 characters long."
+        else:
+            detail = f"Registration failed: {error_message}"
+            
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create user account: {str(e)}"
+            detail=detail
         )
 
 
@@ -149,6 +150,11 @@ async def authenticate_user(email: str, password: str) -> dict:
         })
         
         if auth_response.user and auth_response.session:
+            # Check if email is confirmed (for better user experience)
+            if not auth_response.user.email_confirmed_at:
+                # Still allow login but inform about email confirmation
+                logger.warning(f"User {email} logged in without email confirmation")
+            
             return {
                 "user": auth_response.user,
                 "session": auth_response.session,
@@ -164,7 +170,19 @@ async def authenticate_user(email: str, password: str) -> dict:
         raise
     except Exception as e:
         logger.error(f"Authentication error: {e}")
+        error_message = str(e)
+        
+        # Provide more specific error messages
+        if "Invalid login credentials" in error_message:
+            detail = "Invalid email or password. Please check your credentials."
+        elif "Email not confirmed" in error_message:
+            detail = "Please verify your email address before logging in. Check your inbox for a verification link."
+        elif "Too many requests" in error_message:
+            detail = "Too many login attempts. Please wait a moment and try again."
+        else:
+            detail = "Login failed. Please check your credentials and try again."
+            
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail=detail
         ) 
