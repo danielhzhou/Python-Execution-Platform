@@ -241,4 +241,4 @@ async def get_user_container_status(user_id: str = Depends(get_current_user_id))
         
     except Exception as e:
         logger.error(f"Error getting container status for user {user_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get container status: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to get container status: {str(e)}")  

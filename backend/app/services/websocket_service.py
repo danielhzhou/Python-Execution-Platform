@@ -39,7 +39,7 @@ class WebSocketManager:
     """Manages WebSocket connections for terminal sessions"""
     
     def __init__(self):
-        # session_id -> websocket connection
+        # websocket_id -> websocket connection
         self.active_connections: Dict[str, WebSocket] = {}
         # session_id -> set of connected websockets (for multiple clients)
         self.session_connections: Dict[str, Set[WebSocket]] = {}
@@ -49,7 +49,7 @@ class WebSocketManager:
         await websocket.accept()
         
         # Store the connection
-        self.active_connections[id(websocket)] = websocket
+        self.active_connections[str(id(websocket))] = websocket
         
         if session_id not in self.session_connections:
             self.session_connections[session_id] = set()
@@ -69,7 +69,7 @@ class WebSocketManager:
     async def disconnect(self, websocket: WebSocket, session_id: str):
         """Handle WebSocket disconnection"""
         # Remove from active connections
-        ws_id = id(websocket)
+        ws_id = str(id(websocket))
         if ws_id in self.active_connections:
             del self.active_connections[ws_id]
         
@@ -297,4 +297,4 @@ class WebSocketService:
 
 
 # Global WebSocket service instance
-websocket_service = WebSocketService() 
+websocket_service = WebSocketService()  
