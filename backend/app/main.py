@@ -13,11 +13,18 @@ from app.core.config import settings
 from app.api import api_router
 from app.services.container_service import container_service
 
-# Configure logging
+# Configure logging with reduced verbosity
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Reduce verbosity of specific loggers
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)  # Reduce SQL query logs
+logging.getLogger("httpx").setLevel(logging.WARNING)  # Reduce HTTP client logs
+logging.getLogger("urllib3").setLevel(logging.WARNING)  # Reduce urllib3 logs
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # Reduce access logs
+
 logger = logging.getLogger(__name__)
 
 
