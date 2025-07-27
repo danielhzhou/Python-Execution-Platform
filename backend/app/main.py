@@ -13,18 +13,39 @@ from app.core.config import settings
 from app.api import api_router
 from app.services.container_service import container_service
 
+def configure_logging():
+    """Configure application logging with reduced verbosity"""
+    # Basic logging configuration
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Silence verbose third-party loggers
+    verbose_loggers = [
+        "sqlalchemy.engine",
+        "sqlalchemy.dialects", 
+        "sqlalchemy.pool",
+        "sqlalchemy.orm",
+        "httpx",
+        "urllib3",
+        "uvicorn.access",
+        "uvicorn.error",
+    ]
+    
+    for logger_name in verbose_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    
+    # Reduce verbosity for our own frequent endpoints
+    logging.getLogger("app.api.routes.auth").setLevel(logging.WARNING)
+    logging.getLogger("app.api.routes.containers").setLevel(logging.WARNING)
+    
+    # Use module logger after it's defined
+    module_logger = logging.getLogger(__name__)
+    module_logger.info("🔧 Logging configuration applied - reduced verbosity enabled")
+
 # Configure logging with reduced verbosity
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-# Reduce verbosity of specific loggers
-logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)  # Reduce SQL query logs
-logging.getLogger("httpx").setLevel(logging.WARNING)  # Reduce HTTP client logs
-logging.getLogger("urllib3").setLevel(logging.WARNING)  # Reduce urllib3 logs
-logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # Reduce access logs
-
+configure_logging()
 logger = logging.getLogger(__name__)
 
 

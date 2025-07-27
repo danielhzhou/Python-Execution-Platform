@@ -28,20 +28,37 @@ class DatabaseService:
     async def create_or_update_user(self, user_id: str, email: str, 
                                   full_name: Optional[str] = None,
                                   avatar_url: Optional[str] = None) -> User:
-        """Create or update a user record"""
+        """Create or update a user record (optimized to avoid unnecessary updates)"""
         with get_db_session() as session:
             # Check if user exists
             existing_user = session.get(User, user_id)
             
             if existing_user:
-                # Update existing user
-                existing_user.email = email
-                existing_user.full_name = full_name or existing_user.full_name
-                existing_user.avatar_url = avatar_url or existing_user.avatar_url
-                existing_user.updated_at = datetime.utcnow()
-                session.add(existing_user)
-                session.commit()
-                session.refresh(existing_user)
+                # Only update if data has actually changed
+                needs_update = False
+                
+                if existing_user.email != email:
+                    existing_user.email = email
+                    needs_update = True
+                    
+                if full_name and existing_user.full_name != full_name:
+                    existing_user.full_name = full_name
+                    needs_update = True
+                    
+                if avatar_url and existing_user.avatar_url != avatar_url:
+                    existing_user.avatar_url = avatar_url
+                    needs_update = True
+                
+                # Only commit if something actually changed
+                if needs_update:
+                    existing_user.updated_at = datetime.utcnow()
+                    session.add(existing_user)
+                    session.commit()
+                    session.refresh(existing_user)
+                    logger.debug(f"Updated user data for {email}")
+                else:
+                    logger.debug(f"No changes needed for user {email}")
+                
                 return existing_user
             else:
                 # Create new user
@@ -54,6 +71,7 @@ class DatabaseService:
                 session.add(user)
                 session.commit()
                 session.refresh(user)
+                logger.info(f"Created new user: {email}")
                 return user
     
     async def get_user(self, user_id: str) -> Optional[User]:

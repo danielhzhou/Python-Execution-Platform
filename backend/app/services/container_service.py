@@ -95,100 +95,103 @@ class ContainerService:
         project_name: Optional[str] = None,
         initial_files: Optional[Dict[str, str]] = None
     ) -> TerminalSession:
-        """Create a new container for a user"""
+        """Create a new container for code execution"""
+        logger.info(f"🚀 Starting container creation for user {user_id}")
+        logger.info(f"   Project ID: {project_id}")
+        logger.info(f"   Project Name: {project_name}")
+        logger.info(f"   Initial Files: {len(initial_files) if initial_files else 0} files")
         
-        # Check Docker availability first
-        self._check_docker_available()
+        if not DOCKER_AVAILABLE:
+            logger.error("❌ Docker client not available - cannot create container")
+            raise ImportError("Docker client not available. Please install python-on-whales and ensure Docker is running.")
         
-        # Check if user already has an active container
-        existing = await self._get_user_active_container(user_id)
-        if existing:
-            raise ValueError(f"User {user_id} already has an active container")
-            
-        session_id = str(uuid.uuid4())
-        container_name = f"pyexec-{user_id}-{session_id[:8]}"
+        # Check for existing active containers
+        existing_sessions = await db_service.get_user_terminal_sessions(user_id, active_only=True)
+        if existing_sessions:
+            logger.warning(f"⚠️  User {user_id} already has {len(existing_sessions)} active container(s)")
+            for session in existing_sessions:
+                logger.info(f"   Active container: {session.container_id} (status: {session.status})")
+            raise ValueError(f"User {user_id} already has an active container. Please terminate existing containers first.")
+        
+        container_id = f"pyexec-{user_id[:8]}-{uuid.uuid4().hex[:8]}"
+        logger.info(f"🐳 Creating Docker container with ID: {container_id}")
         
         try:
-            logger.info(f"Creating container {container_name} for user {user_id}")
+            # Create database session first
+            logger.info("💾 Creating database session record...")
+            session = await db_service.create_terminal_session(
+                user_id=user_id,
+                project_id=project_id,
+                container_id=container_id
+            )
+            logger.info(f"✅ Database session created: {session.id}")
             
-            # Create container with security constraints
+            # Create Docker container
+            logger.info(f"🏗️  Starting Docker container creation...")
             container = self.docker.run(
                 image=settings.CONTAINER_IMAGE,
-                name=container_name,
+                name=container_id,
                 detach=True,
-                tty=True,
                 interactive=True,
-                remove=False,  # We'll manage cleanup manually
-                user="1000:1000",  # Non-root user
-                networks=[],  # Start with no network access
-                cpus=settings.CONTAINER_CPU_LIMIT,
-                memory=settings.CONTAINER_MEMORY_LIMIT,
-                workdir="/workspace",
+                tty=True,
+                remove=False,  # Don't auto-remove so we can inspect logs
+                volumes=[
+                    ("/tmp", "/tmp", "rw")
+                ],
                 envs={
                     "PYTHONUNBUFFERED": "1",
-                    "TERM": "xterm-256color"
+                    "TERM": "xterm-256color",
+                    **(initial_files or {})
                 },
-                volumes=[
-                    # Create a temporary workspace volume
-                    (f"{container_name}-workspace", "/workspace")
-                ]
+                workdir="/workspace",
+                user="1000:1000",  # Run as non-root user
+                memory=settings.CONTAINER_MEMORY_LIMIT,
+                cpus=settings.CONTAINER_CPU_LIMIT,
+                networks="none",  # Start with no network access
+                command=["/bin/bash"]
+            )
+            
+            logger.info(f"🎉 Docker container created successfully!")
+            logger.info(f"   Container ID: {container.id}")
+            logger.info(f"   Container Name: {container.name}")
+            logger.info(f"   Status: {container.state.status}")
+            
+            # Update database with running status
+            logger.info("📝 Updating database session to RUNNING status...")
+            updated_session = await db_service.update_terminal_session(
+                session.id,
+                status=ContainerStatus.RUNNING.value,
+                container_id=container.id
             )
             
             # Store container reference
-            self.active_containers[container.id] = container
+            self.active_containers[session.id] = container
+            self.container_sessions[container.id] = session.id
             
-            # Create terminal session record in database
-            session = await db_service.create_terminal_session(
-                user_id=user_id,
-                container_id=container.id,
-                project_id=project_id,
-                container_image=settings.CONTAINER_IMAGE,
-                cpu_limit=settings.CONTAINER_CPU_LIMIT,
-                memory_limit=settings.CONTAINER_MEMORY_LIMIT,
-                environment_vars={}
-            )
+            logger.info(f"✅ Container creation completed successfully!")
+            logger.info(f"   Session ID: {session.id}")
+            logger.info(f"   Container Ready: {container_id}")
+            logger.info(f"   Total Active Containers: {len(self.active_containers)}")
             
-            # Update status to running
-            await db_service.update_terminal_session(
-                session.id, 
-                status=ContainerStatus.RUNNING.value
-            )
-            
-            # Store in runtime cache
-            self.container_sessions[session.id] = session
-            
-            # Initialize workspace if files provided
-            if initial_files:
-                await self._setup_initial_files(container, initial_files)
-                # Store files in database if project exists
-                if project_id:
-                    for file_path, content in initial_files.items():
-                        await db_service.create_project_file(
-                            project_id=project_id,
-                            file_path=file_path,
-                            file_name=file_path.split('/')[-1],
-                            content=content,
-                            mime_type="text/plain"
-                        )
-                
-            logger.info(f"Container {container_name} created successfully")
-            return session
+            return updated_session or session
             
         except DockerException as e:
-            logger.error(f"Failed to create container: {e}")
-            # Clean up database record if container creation failed
+            logger.error(f"❌ Docker error during container creation: {e}")
+            # Update session status to error
             if 'session' in locals():
                 await db_service.update_terminal_session(
-                    session.id, 
+                    session.id,
                     status=ContainerStatus.ERROR.value
                 )
-            raise RuntimeError(f"Container creation failed: {str(e)}")
+            raise ConnectionError(f"Failed to create Docker container: {str(e)}")
+            
         except Exception as e:
-            logger.error(f"Unexpected error creating container: {e}")
-            # Clean up database record if container creation failed
+            logger.error(f"❌ Unexpected error during container creation: {e}")
+            logger.error(f"   Error type: {type(e).__name__}")
+            # Update session status to error
             if 'session' in locals():
                 await db_service.update_terminal_session(
-                    session.id, 
+                    session.id,
                     status=ContainerStatus.ERROR.value
                 )
             raise
