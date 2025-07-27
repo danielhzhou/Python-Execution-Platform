@@ -24,23 +24,38 @@ function App() {
   
   const {
     currentContainer,
-    isCreating,
-    createContainer
+    createContainer,
+    isInitialized
   } = useContainer();
 
   const [showSubmissionDialog, setShowSubmissionDialog] = useState(false);
+  const [hasAttemptedContainerCreation, setHasAttemptedContainerCreation] = useState(false);
 
+  // Check auth status only once on mount
   useEffect(() => {
+    console.log('🔑 Checking authentication status...');
     checkAuthStatus();
-  }, [checkAuthStatus]);
+  }, []); // Remove checkAuthStatus from dependencies to prevent loops
 
-  // Auto-create container when user is authenticated
+  // Auto-create container when user is authenticated and containers are loaded
+  // Only attempt once per session
   useEffect(() => {
-    if (isAuthenticated && !currentContainer && !isCreating) {
-      console.log('User authenticated, creating container...');
-      createContainer();
+    if (
+      isAuthenticated && 
+      isInitialized && 
+      !currentContainer && 
+      !loading && 
+      !hasAttemptedContainerCreation
+    ) {
+      console.log('🚀 Auto-creating container for authenticated user...');
+      setHasAttemptedContainerCreation(true);
+      createContainer().catch(err => {
+        console.error('❌ Auto-container creation failed:', err);
+        // Reset flag on failure so user can try again manually
+        setHasAttemptedContainerCreation(false);
+      });
     }
-  }, [isAuthenticated, currentContainer, isCreating, createContainer]);
+  }, [isAuthenticated, isInitialized, currentContainer, loading, hasAttemptedContainerCreation, createContainer]);
 
   // Clear any previous errors when component mounts
   useEffect(() => {

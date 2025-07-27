@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { containerApi } from '../lib/api';
 import type { Container, ContainerResponse } from '../types';
+
+// Cache for container data to avoid unnecessary requests
+const containerCache = new Map<string, { data: Container[], timestamp: number }>();
+const CACHE_DURATION = 30000; // 30 seconds
 
 export function useContainer() {
   const {
@@ -18,7 +22,10 @@ export function useContainer() {
 
   const { setContainerId } = useTerminalStore();
   const isCreatingRef = useRef(false);
+  const lastLoadTime = useRef(0);
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // Debounced container creation to prevent multiple simultaneous attempts
   const createContainer = useCallback(async (): Promise<Container | null> => {
     // Only create containers if authenticated
     if (!isAuthenticated) {
@@ -27,6 +34,7 @@ export function useContainer() {
     }
 
     if (isCreatingRef.current) {
+      console.log('⏳ Container creation already in progress, skipping...');
       return null; // Prevent multiple simultaneous creations
     }
     
@@ -35,6 +43,8 @@ export function useContainer() {
     setError(null);
 
     try {
+      console.log('🚀 Starting container creation...');
+      
       // Use the new createWithCleanup method for better handling of existing containers
       const response = await containerApi.createWithCleanup();
       
@@ -50,9 +60,14 @@ export function useContainer() {
           lastActivity: new Date()
         };
         
+        console.log('✅ Container created successfully:', container.id);
         addContainer(container);
         setCurrentContainer(container);
         setContainerId(container.id);
+        
+        // Invalidate cache
+        containerCache.clear();
+        
         return container;
       } else {
         // Better error handling for specific container issues
@@ -71,13 +86,14 @@ export function useContainer() {
           }
         }
         
+        console.error('❌ Container creation failed:', errorMessage);
         setError(errorMessage);
         return null;
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create container';
       setError(errorMessage);
-      console.error('Container creation error:', error);
+      console.error('❌ Container creation error:', error);
       return null;
     } finally {
       isCreatingRef.current = false;
@@ -211,15 +227,46 @@ export function useContainer() {
     }
   }, [isAuthenticated, currentContainer, updateContainer, setCurrentContainer, setContainerId, setLoading, setError]);
 
-  const loadContainers = useCallback(async () => {
+  // Optimized container loading with caching and debouncing
+  const loadContainers = useCallback(async (forceRefresh: boolean = false) => {
     if (!isAuthenticated) {
       return;
     }
 
+    const now = Date.now();
+    const cacheKey = 'user_containers';
+    
+    // Check cache first (unless force refresh)
+    if (!forceRefresh) {
+      const cached = containerCache.get(cacheKey);
+      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+        console.log('📦 Using cached container data');
+        cached.data.forEach(container => addContainer(container));
+        
+        // Set current container if none selected
+        if (cached.data.length > 0 && !currentContainer) {
+          const runningContainer = cached.data.find(c => c.status === 'running');
+          if (runningContainer) {
+            setCurrentContainer(runningContainer);
+            setContainerId(runningContainer.id);
+          }
+        }
+        return;
+      }
+    }
+
+    // Debounce API calls - don't call more than once per 5 seconds
+    if (!forceRefresh && (now - lastLoadTime.current) < 5000) {
+      console.log('⏳ Debouncing container load request');
+      return;
+    }
+
+    lastLoadTime.current = now;
     setLoading(true);
     setError(null);
 
     try {
+      console.log('🔄 Loading containers from API...');
       const response = await containerApi.list();
       
       if (response.success && response.data) {
@@ -233,6 +280,11 @@ export function useContainer() {
           lastActivity: new Date()
         }));
         
+        console.log(`✅ Loaded ${containers.length} containers`);
+        
+        // Update cache
+        containerCache.set(cacheKey, { data: containers, timestamp: now });
+        
         containers.forEach(container => {
           addContainer(container);
         });
@@ -241,19 +293,24 @@ export function useContainer() {
         if (containers.length > 0 && !currentContainer) {
           const runningContainer = containers.find(c => c.status === 'running');
           if (runningContainer) {
+            console.log('🎯 Setting current container:', runningContainer.id);
             setCurrentContainer(runningContainer);
             setContainerId(runningContainer.id);
           }
         }
+        
+        setIsInitialized(true);
       } else {
         const errorMessage = typeof response.error === 'string'
           ? response.error
           : 'Failed to load containers';
+        console.error('❌ Failed to load containers:', errorMessage);
         setError(errorMessage);
       }
     } catch (error) {
-      setError('Failed to load containers');
-      console.error('Container load error:', error);
+      const errorMessage = 'Failed to load containers';
+      console.error('❌ Container load error:', error);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -265,11 +322,17 @@ export function useContainer() {
   }, [setCurrentContainer, setContainerId]);
 
   // Load existing containers when user authenticates (but don't auto-create)
+  // Only run once when authenticated and not yet initialized
   useEffect(() => {
-    if (isAuthenticated && containers.length === 0) {
+    if (isAuthenticated && !isInitialized) {
+      console.log('🔑 User authenticated, loading existing containers...');
       loadContainers();
+      setIsInitialized(true);
+    } else if (!isAuthenticated && isInitialized) {
+      // Reset initialization state when user logs out
+      setIsInitialized(false);
     }
-  }, [isAuthenticated, containers.length, loadContainers]);
+  }, [isAuthenticated, isInitialized]);
 
   return {
     currentContainer,
@@ -280,6 +343,7 @@ export function useContainer() {
     stopContainer,
     deleteContainer,
     loadContainers,
-    selectContainer
+    selectContainer,
+    isInitialized
   };
 } 
