@@ -73,17 +73,17 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
+# Configure CORS - Allow all origins for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include API router
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_router, prefix="/api")
 
 # Health check endpoint
 @app.get("/health")
