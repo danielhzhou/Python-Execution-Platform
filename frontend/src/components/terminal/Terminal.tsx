@@ -20,6 +20,7 @@ export function Terminal({ className }: TerminalProps) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [currentInput, setCurrentInput] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
+  const [isTerminalInitialized, setIsTerminalInitialized] = useState(false);
 
   const {
     isConnected,
@@ -38,97 +39,217 @@ export function Terminal({ className }: TerminalProps) {
   const { currentContainer } = useAppStore();
   const { connect, disconnect, sendCommand: wsSendCommand } = useWebSocket();
 
-  // Initialize terminal
+  // Initialize terminal with improved error handling
   useEffect(() => {
-    if (!terminalRef.current) return;
+    if (!terminalRef.current || isTerminalInitialized) return;
 
-    const terminal = new XTerm({
-      theme: {
-        background: theme.background,
-        foreground: theme.foreground,
-        cursor: theme.cursor,
-        selection: theme.selection,
-      },
-      fontSize,
-      fontFamily,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: 1000,
-      tabStopWidth: 4,
-      bellStyle: 'none',
-      allowTransparency: true,
-      macOptionIsMeta: true,
-      rightClickSelectsWord: true,
-      convertEol: true,
-    });
+    let terminal: XTerm | null = null;
+    let fitAddon: FitAddon | null = null;
+    let webLinksAddon: WebLinksAddon | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let resizeTimeout: NodeJS.Timeout | null = null;
 
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
+    const initializeTerminal = async () => {
+      try {
+        // Create terminal instance
+        terminal = new XTerm({
+          theme: {
+            background: theme.background,
+            foreground: theme.foreground,
+            cursor: theme.cursor,
+          },
+          fontSize,
+          fontFamily,
+          cursorBlink: true,
+          cursorStyle: 'block',
+          scrollback: 1000,
+          tabStopWidth: 4,
+          allowTransparency: true,
+          macOptionIsMeta: true,
+          rightClickSelectsWord: true,
+          convertEol: true,
+        });
 
-    terminal.loadAddon(fitAddon);
-    terminal.loadAddon(webLinksAddon);
+        // Create addons
+        fitAddon = new FitAddon();
+        webLinksAddon = new WebLinksAddon();
 
-    terminal.open(terminalRef.current);
-    fitAddon.fit();
+        // Load addons before opening terminal
+        terminal.loadAddon(fitAddon);
+        terminal.loadAddon(webLinksAddon);
 
-    xtermRef.current = terminal;
-    fitAddonRef.current = fitAddon;
+        // Store refs
+        xtermRef.current = terminal;
+        fitAddonRef.current = fitAddon;
 
-    // Welcome message
-    terminal.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
-    terminal.writeln('\x1b[1;32m│ Ready for Python development         │\x1b[0m');
-    terminal.writeln('\x1b[1;32m╰───────────────────────────────────────╯\x1b[0m');
-    terminal.writeln('');
-    
-    if (currentContainer) {
-      terminal.writeln(`\x1b[1;36mContainer: ${currentContainer.id.substring(0, 12)}\x1b[0m`);
-      terminal.write('\x1b[1;32m$ \x1b[0m');
-    } else {
-      terminal.writeln('\x1b[1;33mNo container available. Creating...\x1b[0m');
-    }
+        // Open terminal in container
+        if (terminalRef.current) {
+          terminal.open(terminalRef.current);
+          
+          // Wait for terminal to be properly rendered
+          await new Promise(resolve => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(resolve);
+            });
+          });
 
-    // Handle terminal input
-    terminal.onData((data) => {
-      handleTerminalInput(data);
-    });
+          // Safe fit function with proper checks
+          const safeFit = () => {
+            try {
+              if (
+                terminal && 
+                fitAddon && 
+                terminalRef.current &&
+                terminal.element &&
+                terminalRef.current.offsetWidth > 0 && 
+                terminalRef.current.offsetHeight > 0 &&
+                terminal.element.offsetWidth > 0 &&
+                terminal.element.offsetHeight > 0
+              ) {
+                fitAddon.fit();
+                return true;
+              }
+            } catch (error) {
+              console.warn('Terminal fit error:', error);
+            }
+            return false;
+          };
 
-    // Handle terminal resize
-    terminal.onResize(({ cols, rows }) => {
-      // Send resize info to backend if connected
-      console.log(`Terminal resized: ${cols}x${rows}`);
-    });
+          // Initial fit with retries
+          let fitAttempts = 0;
+          const maxFitAttempts = 10;
+          
+          const attemptFit = () => {
+            if (safeFit()) {
+              console.log('Terminal successfully initialized and fitted');
+              setIsTerminalInitialized(true);
+              return;
+            }
+            
+            fitAttempts++;
+            if (fitAttempts < maxFitAttempts) {
+              setTimeout(attemptFit, 50);
+            } else {
+              console.warn('Terminal fit failed after maximum attempts');
+              setIsTerminalInitialized(true); // Continue anyway
+            }
+          };
 
-    // Handle selection
-    terminal.onSelectionChange(() => {
-      const selection = terminal.getSelection();
-      if (selection) {
-        // Could add copy functionality here
+          attemptFit();
+
+          // Set up ResizeObserver with proper error handling
+          if (terminalRef.current && typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver((entries) => {
+              for (const entry of entries) {
+                if (entry.target === terminalRef.current && isTerminalInitialized) {
+                  if (resizeTimeout) {
+                    clearTimeout(resizeTimeout);
+                  }
+                  resizeTimeout = setTimeout(() => {
+                    safeFit();
+                  }, 100);
+                }
+              }
+            });
+            
+            resizeObserver.observe(terminalRef.current);
+          }
+
+          // Welcome message
+          terminal.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
+          terminal.writeln('\x1b[1;32m│ Ready for Python development         │\x1b[0m');
+          terminal.writeln('\x1b[1;32m╰───────────────────────────────────────╯\x1b[0m');
+          terminal.writeln('');
+          
+          if (currentContainer) {
+            terminal.writeln(`\x1b[1;36mContainer: ${currentContainer.id.substring(0, 12)}\x1b[0m`);
+            terminal.write('\x1b[1;32m$ \x1b[0m');
+          } else {
+            terminal.writeln('\x1b[1;33mNo container available. Creating...\x1b[0m');
+          }
+
+          // Handle terminal input with error boundaries
+          terminal.onData((data) => {
+            try {
+              handleTerminalInput(data);
+            } catch (error) {
+              console.error('Terminal input error:', error);
+            }
+          });
+
+          // Handle terminal resize
+          terminal.onResize(({ cols, rows }) => {
+            console.log(`Terminal resized: ${cols}x${rows}`);
+          });
+
+          // Handle selection
+          terminal.onSelectionChange(() => {
+            try {
+              const selection = terminal?.getSelection();
+              if (selection) {
+                // Could add copy functionality here
+              }
+            } catch (error) {
+              console.warn('Terminal selection error:', error);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Terminal initialization error:', error);
+        setIsTerminalInitialized(true); // Mark as initialized to prevent retry loops
       }
-    });
-
-    return () => {
-      terminal.dispose();
     };
-  }, [theme, fontSize, fontFamily, currentContainer]);
+
+    initializeTerminal();
+
+    // Cleanup function
+    return () => {
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      if (terminal) {
+        try {
+          terminal.dispose();
+        } catch (error) {
+          console.warn('Terminal disposal error:', error);
+        }
+      }
+      xtermRef.current = null;
+      fitAddonRef.current = null;
+      setIsTerminalInitialized(false);
+    };
+  }, [theme, fontSize, fontFamily, currentContainer, isTerminalInitialized]);
 
   // Auto-connect WebSocket when terminal is ready
   useEffect(() => {
-    if (xtermRef.current && currentContainer && !isConnected) {
+    if (isTerminalInitialized && xtermRef.current && currentContainer && !isConnected) {
       connect();
     }
-  }, [currentContainer, isConnected, connect]);
+  }, [currentContainer, isConnected, connect, isTerminalInitialized]);
 
-  // Handle window resize
+  // Handle window resize with improved error handling
   useEffect(() => {
     const handleResize = () => {
-      if (fitAddonRef.current) {
-        fitAddonRef.current.fit();
+      if (fitAddonRef.current && xtermRef.current?.element && isTerminalInitialized) {
+        try {
+          // Add delay to ensure DOM has updated
+          setTimeout(() => {
+            if (fitAddonRef.current && xtermRef.current?.element) {
+              fitAddonRef.current.fit();
+            }
+          }, 50);
+        } catch (error) {
+          console.warn('Terminal resize failed:', error);
+        }
       }
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [isTerminalInitialized]);
 
   // Handle terminal input
   const handleTerminalInput = useCallback((data: string) => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { containerApi } from '../lib/api';
-import type { Container } from '../types';
+import type { Container, ContainerResponse } from '../types';
 
 export function useContainer() {
   const {
@@ -20,6 +20,12 @@ export function useContainer() {
   const isCreatingRef = useRef(false);
 
   const createContainer = useCallback(async (): Promise<Container | null> => {
+    // Only create containers if authenticated
+    if (!isAuthenticated) {
+      setError('You must be logged in to create a container');
+      return null;
+    }
+
     if (isCreatingRef.current) {
       return null; // Prevent multiple simultaneous creations
     }
@@ -29,16 +35,17 @@ export function useContainer() {
     setError(null);
 
     try {
-      const response = await containerApi.create();
+      // Use the new createWithCleanup method for better handling of existing containers
+      const response = await containerApi.createWithCleanup();
       
       if (response.success && response.data) {
-        // The backend returns a different structure, let's adapt it
-        const containerData = response.data;
+        // The backend returns ContainerResponse structure
+        const containerData: ContainerResponse = response.data;
         const container: Container = {
-          id: containerData.container_id || containerData.session_id,
-          userId: containerData.user_id || 'unknown', // Will be set by backend
+          id: containerData.session_id,
+          userId: containerData.user_id || 'unknown',
           dockerId: containerData.container_id,
-          status: containerData.status || 'running',
+          status: containerData.status,
           createdAt: new Date(),
           lastActivity: new Date()
         };
@@ -48,20 +55,98 @@ export function useContainer() {
         setContainerId(container.id);
         return container;
       } else {
-        setError(response.error || 'Failed to create container');
+        // Better error handling for specific container issues
+        let errorMessage = 'Failed to create container';
+        
+        if (response.error) {
+          if (typeof response.error === 'string') {
+            errorMessage = response.error;
+          } else if (typeof response.error === 'object') {
+            errorMessage = response.error.error || response.error.message || errorMessage;
+            
+            // Handle specific error cases
+            if (errorMessage.includes('already has an active container')) {
+              errorMessage = 'You have an active container. Please wait while we clean it up and retry...';
+            }
+          }
+        }
+        
+        setError(errorMessage);
         return null;
       }
     } catch (error) {
-      setError('Failed to create container');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create container';
+      setError(errorMessage);
       console.error('Container creation error:', error);
       return null;
     } finally {
       isCreatingRef.current = false;
       setLoading(false);
     }
-  }, [addContainer, setCurrentContainer, setContainerId, setLoading, setError]);
+  }, [isAuthenticated, addContainer, setCurrentContainer, setContainerId, setLoading, setError]);
+
+  const cleanupContainers = useCallback(async () => {
+    if (!isAuthenticated) {
+      setError('You must be logged in to cleanup containers');
+      return null;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await containerApi.cleanup();
+      
+      if (response.success) {
+        // Clear current container if it was terminated
+        if (currentContainer) {
+          setCurrentContainer(null);
+          setContainerId(null);
+        }
+        
+        return response.data;
+      } else {
+        const errorMessage = typeof response.error === 'string' 
+          ? response.error 
+          : 'Failed to cleanup containers';
+        setError(errorMessage);
+        return null;
+      }
+    } catch (error) {
+      setError('Failed to cleanup containers');
+      console.error('Container cleanup error:', error);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated, currentContainer, setCurrentContainer, setContainerId, setLoading, setError]);
+
+  const getContainerStatus = useCallback(async () => {
+    if (!isAuthenticated) {
+      return null;
+    }
+
+    try {
+      const response = await containerApi.getStatus();
+      
+      if (response.success) {
+        return response.data;
+      } else {
+        console.error('Failed to get container status:', response.error);
+        return null;
+      }
+    } catch (error) {
+      console.error('Container status error:', error);
+      return null;
+    }
+  }, [isAuthenticated]);
 
   const stopContainer = useCallback(async (containerId: string) => {
+    if (!isAuthenticated) {
+      setError('You must be logged in to stop containers');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -77,7 +162,10 @@ export function useContainer() {
           setContainerId(null);
         }
       } else {
-        setError(response.error || 'Failed to stop container');
+        const errorMessage = typeof response.error === 'string'
+          ? response.error
+          : 'Failed to stop container';
+        setError(errorMessage);
       }
     } catch (error) {
       setError('Failed to stop container');
@@ -85,9 +173,14 @@ export function useContainer() {
     } finally {
       setLoading(false);
     }
-  }, [currentContainer, updateContainer, setCurrentContainer, setContainerId, setLoading, setError]);
+  }, [isAuthenticated, currentContainer, updateContainer, setCurrentContainer, setContainerId, setLoading, setError]);
 
   const deleteContainer = useCallback(async (containerId: string) => {
+    if (!isAuthenticated) {
+      setError('You must be logged in to delete containers');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -105,7 +198,10 @@ export function useContainer() {
           setContainerId(null);
         }
       } else {
-        setError(response.error || 'Failed to delete container');
+        const errorMessage = typeof response.error === 'string'
+          ? response.error
+          : 'Failed to delete container';
+        setError(errorMessage);
       }
     } catch (error) {
       setError('Failed to delete container');
@@ -113,9 +209,13 @@ export function useContainer() {
     } finally {
       setLoading(false);
     }
-  }, [currentContainer, updateContainer, setCurrentContainer, setContainerId, setLoading, setError]);
+  }, [isAuthenticated, currentContainer, updateContainer, setCurrentContainer, setContainerId, setLoading, setError]);
 
   const loadContainers = useCallback(async () => {
+    if (!isAuthenticated) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -123,13 +223,33 @@ export function useContainer() {
       const response = await containerApi.list();
       
       if (response.success && response.data) {
-        // You'd need to add a setContainers action to the store
-        // For now, we'll add them individually
-        response.data.forEach((container: any) => {
+        // Convert backend ContainerResponse[] to Container[]
+        const containers: Container[] = response.data.map((containerResponse: ContainerResponse) => ({
+          id: containerResponse.session_id,
+          userId: containerResponse.user_id || 'unknown',
+          dockerId: containerResponse.container_id,
+          status: containerResponse.status,
+          createdAt: new Date(),
+          lastActivity: new Date()
+        }));
+        
+        containers.forEach(container => {
           addContainer(container);
         });
+
+        // If we have containers but no current container, set the first running one
+        if (containers.length > 0 && !currentContainer) {
+          const runningContainer = containers.find(c => c.status === 'running');
+          if (runningContainer) {
+            setCurrentContainer(runningContainer);
+            setContainerId(runningContainer.id);
+          }
+        }
       } else {
-        setError(response.error || 'Failed to load containers');
+        const errorMessage = typeof response.error === 'string'
+          ? response.error
+          : 'Failed to load containers';
+        setError(errorMessage);
       }
     } catch (error) {
       setError('Failed to load containers');
@@ -137,24 +257,26 @@ export function useContainer() {
     } finally {
       setLoading(false);
     }
-  }, [addContainer, setLoading, setError]);
+  }, [isAuthenticated, addContainer, currentContainer, setCurrentContainer, setContainerId, setLoading, setError]);
 
   const selectContainer = useCallback((container: Container) => {
     setCurrentContainer(container);
     setContainerId(container.id);
   }, [setCurrentContainer, setContainerId]);
 
-  // Auto-create container if none exists - only after authentication
+  // Load existing containers when user authenticates (but don't auto-create)
   useEffect(() => {
-    if (isAuthenticated && containers.length === 0 && !currentContainer && !isCreatingRef.current) {
-      createContainer();
+    if (isAuthenticated && containers.length === 0) {
+      loadContainers();
     }
-  }, [isAuthenticated, containers.length, currentContainer]); // Added isAuthenticated dependency
+  }, [isAuthenticated, containers.length, loadContainers]);
 
   return {
     currentContainer,
     containers,
     createContainer,
+    cleanupContainers,
+    getContainerStatus,
     stopContainer,
     deleteContainer,
     loadContainers,

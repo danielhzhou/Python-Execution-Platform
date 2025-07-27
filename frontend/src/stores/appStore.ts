@@ -52,28 +52,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
+    // Set loading while checking auth
+    set({ loading: true });
+
     try {
       const response = await authApi.getCurrentUser();
-      if (response.success) {
+      if (response.success && response.data) {
+        console.log('Authentication verified for user:', response.data.email);
         set({ 
           isAuthenticated: true, 
-          user: response.data 
+          user: response.data,
+          loading: false,
+          error: null
         });
       } else {
+        console.log('Authentication failed:', response.error);
         set({ 
           isAuthenticated: false, 
-          user: null 
+          user: null,
+          loading: false
         });
       }
     } catch (error) {
+      console.error('Auth check error:', error);
       set({ 
         isAuthenticated: false, 
-        user: null 
+        user: null,
+        loading: false
       });
     }
   },
 
   logout: async () => {
+    set({ loading: true });
+    
     try {
       await authApi.logout();
     } catch (error) {
@@ -83,7 +95,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         isAuthenticated: false, 
         user: null,
         currentContainer: null,
-        containers: []
+        containers: [],
+        loading: false,
+        error: null
       });
     }
   },

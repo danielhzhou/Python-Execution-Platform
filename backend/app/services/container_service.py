@@ -8,8 +8,16 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 from contextlib import asynccontextmanager
 
-from python_on_whales import DockerClient, Container
-from python_on_whales.exceptions import DockerException
+try:
+    from python_on_whales import DockerClient, Container
+    from python_on_whales.exceptions import DockerException
+    DOCKER_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Docker client not available: {e}")
+    DOCKER_AVAILABLE = False
+    DockerClient = None
+    Container = None
+    DockerException = Exception
 
 from app.core.config import settings
 from app.models.container import ContainerStatus, ContainerInfo, TerminalSession
@@ -22,17 +30,50 @@ class ContainerService:
     """Service for managing Docker containers and terminal sessions"""
     
     def __init__(self):
-        self.docker = DockerClient(host=settings.DOCKER_HOST)
+        self.docker = None
         self.active_containers: Dict[str, Container] = {}
         # Note: container_sessions now stored in database, this is just for runtime tracking
         self.container_sessions: Dict[str, TerminalSession] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
+        self._initialized = False
+        
+        # Initialize Docker client if available
+        if DOCKER_AVAILABLE:
+            try:
+                self.docker = DockerClient(host=settings.DOCKER_HOST)
+                # Test Docker connection
+                self.docker.system.info()
+                self._initialized = True
+                logger.info("Docker client initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Docker client: {e}")
+                self.docker = None
+        else:
+            logger.error("Docker client not available - python-on-whales not installed")
+    
+    def _check_docker_available(self):
+        """Check if Docker is available and raise appropriate error if not"""
+        if not DOCKER_AVAILABLE:
+            raise ImportError("Docker client not available. Please install python-on-whales: pip install python-on-whales")
+        
+        if not self.docker:
+            raise ConnectionError("Docker daemon is not accessible. Please ensure Docker is running and accessible.")
+        
+        if not self._initialized:
+            raise RuntimeError("Container service not properly initialized")
         
     async def start(self):
         """Start the container service and cleanup task"""
         logger.info("Starting Container Service")
-        await self._ensure_network_exists()
-        self._cleanup_task = asyncio.create_task(self._cleanup_containers())
+        
+        try:
+            self._check_docker_available()
+            await self._ensure_network_exists()
+            self._cleanup_task = asyncio.create_task(self._cleanup_containers())
+            logger.info("Container service started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start container service: {e}")
+            # Don't raise the error - allow the service to start in degraded mode
         
     async def stop(self):
         """Stop the container service and cleanup all containers"""
@@ -42,7 +83,10 @@ class ContainerService:
             
         # Clean up all active containers
         for container_id in list(self.active_containers.keys()):
-            await self.terminate_container(container_id)
+            try:
+                await self.terminate_container(container_id)
+            except Exception as e:
+                logger.error(f"Error terminating container {container_id} during shutdown: {e}")
             
     async def create_container(
         self, 
@@ -52,6 +96,9 @@ class ContainerService:
         initial_files: Optional[Dict[str, str]] = None
     ) -> TerminalSession:
         """Create a new container for a user"""
+        
+        # Check Docker availability first
+        self._check_docker_available()
         
         # Check if user already has an active container
         existing = await self._get_user_active_container(user_id)
@@ -136,9 +183,24 @@ class ContainerService:
                     status=ContainerStatus.ERROR.value
                 )
             raise RuntimeError(f"Container creation failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error creating container: {e}")
+            # Clean up database record if container creation failed
+            if 'session' in locals():
+                await db_service.update_terminal_session(
+                    session.id, 
+                    status=ContainerStatus.ERROR.value
+                )
+            raise
             
     async def get_container_info(self, session_id: str) -> Optional[ContainerInfo]:
         """Get container information"""
+        try:
+            self._check_docker_available()
+        except Exception as e:
+            logger.error(f"Docker not available for container info: {e}")
+            return None
+            
         # Get session from database first, then check runtime cache
         session = await db_service.get_terminal_session(session_id)
         if not session:
@@ -166,6 +228,16 @@ class ContainerService:
         except DockerException as e:
             logger.error(f"Failed to get container info: {e}")
             return None
+    
+    async def list_user_containers(self, user_id: str) -> List[TerminalSession]:
+        """List all containers for a user"""
+        try:
+            # Get sessions from database
+            sessions = await db_service.get_user_terminal_sessions(user_id)
+            return sessions
+        except Exception as e:
+            logger.error(f"Failed to list user containers: {e}")
+            return []
             
     async def terminate_container(self, session_id: str) -> bool:
         """Terminate a container and clean up resources"""
@@ -173,42 +245,36 @@ class ContainerService:
         session = await db_service.get_terminal_session(session_id)
         if not session:
             return False
-            
-        container = self.active_containers.get(session.container_id)
-        if not container:
-            # Update database even if container not found
-            await db_service.terminate_terminal_session(session_id)
-            return False
-            
-        try:
-            logger.info(f"Terminating container {container.name}")
-            
-            # Disconnect from networks
-            await self._disconnect_from_pypi_network(container)
-            
-            # Stop and remove container
-            container.stop(time=5)
-            container.remove(volumes=True)
-            
-            # Update database
-            await db_service.terminate_terminal_session(session_id)
-            
-            # Clean up runtime references
-            del self.active_containers[session.container_id]
-            if session_id in self.container_sessions:
-                del self.container_sessions[session_id]
-            
-            logger.info(f"Container {container.name} terminated successfully")
-            return True
-            
-        except DockerException as e:
-            logger.error(f"Failed to terminate container: {e}")
-            # Still update database status
-            await db_service.update_terminal_session(
-                session_id, 
-                status=ContainerStatus.ERROR.value
-            )
-            return False
+        
+        # Try to clean up Docker container if Docker is available
+        if self.docker and session.container_id in self.active_containers:
+            container = self.active_containers[session.container_id]
+            try:
+                logger.info(f"Terminating container {container.name}")
+                
+                # Disconnect from networks
+                await self._disconnect_from_pypi_network(container)
+                
+                # Stop and remove container
+                container.stop(time=5)
+                container.remove(volumes=True)
+                
+                # Clean up runtime references
+                del self.active_containers[session.container_id]
+                
+                logger.info(f"Container {container.name} terminated successfully")
+            except DockerException as e:
+                logger.error(f"Failed to terminate container: {e}")
+                # Continue with database cleanup even if Docker cleanup fails
+        
+        # Always update database status
+        await db_service.terminate_terminal_session(session_id)
+        
+        # Clean up runtime references
+        if session_id in self.container_sessions:
+            del self.container_sessions[session_id]
+        
+        return True
             
     async def enable_network_access(self, session_id: str) -> bool:
         """Enable network access for package installation"""

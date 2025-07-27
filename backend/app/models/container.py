@@ -221,8 +221,9 @@ class ContainerResponse(BaseModel):
     """Container creation response"""
     session_id: str
     container_id: str
-    status: ContainerStatus
+    status: str  # Changed from ContainerStatus to str for frontend compatibility
     websocket_url: str
+    user_id: Optional[str] = None  # Add for frontend compatibility
 
 
 class ProjectCreateRequest(BaseModel):

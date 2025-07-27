@@ -5,7 +5,6 @@ interface TerminalState {
   // Connection state
   isConnected: boolean;
   containerId: string | null;
-  websocket: WebSocket | null;
   
   // Terminal state
   output: string[];
@@ -26,16 +25,15 @@ interface TerminalState {
   // Actions
   setConnected: (connected: boolean) => void;
   setContainerId: (id: string | null) => void;
-  setWebSocket: (ws: WebSocket | null) => void;
   addOutput: (output: string) => void;
   clearOutput: () => void;
   addToHistory: (command: string) => void;
   setCurrentCommand: (command: string) => void;
   navigateHistory: (direction: 'up' | 'down') => void;
+  sendCommand: (command: string) => void;
   setTheme: (theme: Partial<TerminalState['theme']>) => void;
   setFontSize: (size: number) => void;
   setFontFamily: (family: string) => void;
-  sendCommand: (command: string) => void;
   reset: () => void;
 }
 
@@ -49,7 +47,6 @@ const defaultTheme = {
 const initialState = {
   isConnected: false,
   containerId: null,
-  websocket: null,
   output: [],
   commandHistory: [],
   historyIndex: -1,
@@ -68,18 +65,24 @@ export const useTerminalStore = create<TerminalState>()(
       
       setContainerId: (containerId) => set({ containerId }),
       
-      setWebSocket: (websocket) => set({ websocket }),
-      
       addOutput: (output) => set((state) => ({
         output: [...state.output, output]
       })),
       
       clearOutput: () => set({ output: [] }),
       
-      addToHistory: (command) => set((state) => ({
-        commandHistory: [...state.commandHistory, command],
-        historyIndex: -1
-      })),
+      addToHistory: (command) => set((state) => {
+        const trimmedCommand = command.trim();
+        if (trimmedCommand && 
+            (state.commandHistory.length === 0 || 
+             state.commandHistory[state.commandHistory.length - 1] !== trimmedCommand)) {
+          return {
+            commandHistory: [...state.commandHistory, trimmedCommand],
+            historyIndex: -1
+          };
+        }
+        return state;
+      }),
       
       setCurrentCommand: (currentCommand) => set({ currentCommand }),
       
@@ -108,6 +111,15 @@ export const useTerminalStore = create<TerminalState>()(
         };
       }),
       
+      sendCommand: (command) => {
+        // Add command to history
+        get().addToHistory(command);
+        
+        // This is handled by the WebSocket hook in practice
+        // The terminal store just manages state, actual sending is done by useWebSocket
+        console.log('Command queued for sending:', command);
+      },
+      
       setTheme: (theme) => set((state) => ({
         theme: { ...state.theme, ...theme }
       })),
@@ -115,29 +127,6 @@ export const useTerminalStore = create<TerminalState>()(
       setFontSize: (fontSize) => set({ fontSize }),
       
       setFontFamily: (fontFamily) => set({ fontFamily }),
-      
-      sendCommand: (command) => {
-        const { websocket, containerId } = get();
-        if (websocket && containerId && websocket.readyState === WebSocket.OPEN) {
-          websocket.send(JSON.stringify({
-            type: 'terminal_input',
-            data: command + '\n',
-            containerId
-          }));
-          
-          // Add to history if it's not empty and different from last command
-          const { commandHistory } = get();
-          const trimmedCommand = command.trim();
-          if (trimmedCommand && 
-              (commandHistory.length === 0 || 
-               commandHistory[commandHistory.length - 1] !== trimmedCommand)) {
-            set((state) => ({
-              commandHistory: [...state.commandHistory, trimmedCommand],
-              historyIndex: -1
-            }));
-          }
-        }
-      },
       
       reset: () => set(initialState),
     }),

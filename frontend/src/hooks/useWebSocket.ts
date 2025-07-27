@@ -8,25 +8,36 @@ export function useWebSocket() {
   const wsRef = useRef<WebSocketManager | null>(null);
   const {
     setConnected,
-    setWebSocket,
     addOutput,
     containerId
   } = useTerminalStore();
   const { setError } = useAppStore();
 
   const connect = useCallback(async () => {
+    if (!containerId) {
+      setError('No container ID available for WebSocket connection');
+      return;
+    }
+
     if (!wsRef.current) {
       wsRef.current = new WebSocketManager();
       
       // Set up event handlers
       wsRef.current.on('connection', () => {
+        console.log('WebSocket connected successfully');
         setConnected(true);
-        setWebSocket(wsRef.current?.ws || null);
       });
 
       wsRef.current.on('disconnection', () => {
+        console.log('WebSocket disconnected');
         setConnected(false);
-        setWebSocket(null);
+      });
+
+      // Handle terminal output from backend
+      wsRef.current.on('output', (message: WebSocketMessage) => {
+        if (message.type === 'output' && message.data?.content) {
+          addOutput(message.data.content);
+        }
       });
 
       wsRef.current.on('terminal_output', (message: WebSocketMessage) => {
@@ -35,20 +46,36 @@ export function useWebSocket() {
         }
       });
 
+      // Handle connection confirmation
+      wsRef.current.on('connected', (message: WebSocketMessage) => {
+        if (message.type === 'connected') {
+          console.log('Terminal connection confirmed:', message.data?.message);
+        }
+      });
+
+      // Handle terminal resize confirmation
+      wsRef.current.on('resized', (message: WebSocketMessage) => {
+        if (message.type === 'resized') {
+          console.log('Terminal resized:', message.data);
+        }
+      });
+
       wsRef.current.on('error', (message: WebSocketMessage) => {
         if (message.type === 'error') {
-          setError(message.message);
+          const errorMsg = message.message || 'WebSocket error';
+          console.error('WebSocket error:', errorMsg);
+          setError(errorMsg);
         }
       });
     }
 
     try {
-      await wsRef.current.connect();
+      await wsRef.current.connect(containerId);
     } catch (error) {
       console.error('Failed to connect to WebSocket:', error);
       setError('Failed to connect to terminal');
     }
-  }, [setConnected, setWebSocket, addOutput, setError]);
+  }, [containerId, setConnected, addOutput, setError]);
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
@@ -56,15 +83,14 @@ export function useWebSocket() {
       wsRef.current = null;
     }
     setConnected(false);
-    setWebSocket(null);
-  }, [setConnected, setWebSocket]);
+  }, [setConnected]);
 
   const sendCommand = useCallback((command: string) => {
     if (wsRef.current && containerId) {
       wsRef.current.send({
         type: 'terminal_input',
         data: command,
-        containerId
+        containerId: containerId
       });
     }
   }, [containerId]);

@@ -30,10 +30,10 @@ async def create_project(
         )
         
         return ProjectResponse(
-            id=project.id,
+            id=str(project.id),  # Convert UUID to string
             name=project.name,
             description=project.description,
-            owner_id=project.owner_id,
+            owner_id=str(project.owner_id),  # Convert UUID to string
             is_public=project.is_public,
             created_at=project.created_at,
             updated_at=project.updated_at
@@ -52,10 +52,10 @@ async def list_user_projects(
         projects = await db_service.get_user_projects(user_id)
         return [
             ProjectResponse(
-                id=project.id,
+                id=str(project.id),  # Convert UUID to string
                 name=project.name,
                 description=project.description,
-                owner_id=project.owner_id,
+                owner_id=str(project.owner_id),  # Convert UUID to string
                 is_public=project.is_public,
                 created_at=project.created_at,
                 updated_at=project.updated_at
@@ -82,10 +82,10 @@ async def get_project(
             raise HTTPException(status_code=403, detail="Access denied")
         
         return ProjectResponse(
-            id=project.id,
+            id=str(project.id),  # Convert UUID to string
             name=project.name,
             description=project.description,
-            owner_id=project.owner_id,
+            owner_id=str(project.owner_id),  # Convert UUID to string
             is_public=project.is_public,
             created_at=project.created_at,
             updated_at=project.updated_at
@@ -121,10 +121,10 @@ async def update_project(
         )
         
         return ProjectResponse(
-            id=updated_project.id,
+            id=str(updated_project.id),  # Convert UUID to string
             name=updated_project.name,
             description=updated_project.description,
-            owner_id=updated_project.owner_id,
+            owner_id=str(updated_project.owner_id),  # Convert UUID to string
             is_public=updated_project.is_public,
             created_at=updated_project.created_at,
             updated_at=updated_project.updated_at
@@ -262,12 +262,12 @@ async def create_submission(
         )
         
         return SubmissionResponse(
-            id=submission.id,
-            user_id=submission.owner_id,
-            project_id=submission.project_id,
+            id=str(submission.id),  # Convert UUID to string
+            user_id=str(submission.owner_id),  # Convert UUID to string
+            project_id=str(submission.project_id),  # Convert UUID to string
             title=submission.title,
             description=submission.description,
-            status=submission.status,
+            status=submission.status,  # This should already be a string from the enum
             created_at=submission.created_at,
             submitted_at=submission.submitted_at
         )

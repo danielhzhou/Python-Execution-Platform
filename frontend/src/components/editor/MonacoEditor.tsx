@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { useEditorStore } from '../../stores/editorStore';
@@ -15,6 +15,9 @@ interface MonacoEditorProps {
 
 export function MonacoEditor({ className }: MonacoEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const [isEditorReady, setIsEditorReady] = useState(false);
+  const [isMonacoLoaded, setIsMonacoLoaded] = useState(false);
+  
   const {
     content,
     language,
@@ -31,74 +34,113 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
   const { currentFile, setError } = useAppStore();
   const { manualSave, hasUnsavedChanges } = useAutoSave();
 
-  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
-    editorRef.current = editor;
+  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: any) => {
+    try {
+      editorRef.current = editor;
+      setIsMonacoLoaded(true);
 
-    // Configure editor options
-    editor.updateOptions({
-      fontSize,
-      wordWrap,
-      minimap: { enabled: minimap },
-      automaticLayout: true,
-      scrollBeyondLastLine: false,
-      renderWhitespace: 'selection',
-      bracketPairColorization: { enabled: true },
-      guides: {
-        bracketPairs: true,
-        indentation: true
-      },
-      suggest: {
-        showKeywords: true,
-        showSnippets: true
-      }
-    });
-
-    // Add keyboard shortcuts
-    editor.addCommand(editor.KeyMod.CtrlCmd | editor.KeyCode.KeyS, () => {
-      manualSave();
-    });
-
-    // Add Python-specific configurations
-    if (language === 'python') {
-      editor.addCommand(editor.KeyMod.CtrlCmd | editor.KeyCode.Enter, () => {
-        // Could trigger code execution here
-        console.log('Execute code shortcut pressed');
-      });
-    }
-
-    // Focus the editor
-    editor.focus();
-  }, [fontSize, wordWrap, minimap, language, manualSave]);
-
-  const handleEditorChange = useCallback((value: string | undefined) => {
-    if (value !== undefined && value !== content) {
-      setContent(value);
-      
-      // Basic syntax validation for Python
-      if (language === 'python') {
-        const validation = validatePythonSyntax(value);
-        if (!validation.isValid && validation.error) {
-          // You could show syntax errors in the UI here
-          console.warn('Python syntax issues:', validation.error);
-        }
-      }
-    }
-  }, [content, language, setContent]);
-
-  const handleSaveClick = useCallback(async () => {
-    await manualSave();
-  }, [manualSave]);
-
-  // Update editor theme when store changes
-  useEffect(() => {
-    if (editorRef.current) {
-      editorRef.current.updateOptions({
+      // Configure editor options
+      editor.updateOptions({
         fontSize,
         wordWrap,
-        minimap: { enabled: minimap }
+        minimap: { enabled: minimap },
+        automaticLayout: true,
+        scrollBeyondLastLine: false,
+        renderWhitespace: 'selection',
+        bracketPairColorization: { enabled: true },
+        guides: {
+          bracketPairs: true,
+          indentation: true
+        },
+        suggest: {
+          showKeywords: true,
+          showSnippets: true
+        }
       });
+
+      // Add keyboard shortcuts with proper error handling
+      try {
+        // Ensure KeyMod and KeyCode are available
+        if (monaco?.KeyMod && monaco?.KeyCode) {
+          // Save shortcut
+          editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+            try {
+              manualSave();
+            } catch (error) {
+              console.error('Manual save error:', error);
+            }
+          });
+
+          // Add Python-specific configurations
+          if (language === 'python') {
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+              console.log('Execute code shortcut pressed');
+            });
+          }
+        } else {
+          console.warn('Monaco KeyMod or KeyCode not available, shortcuts disabled');
+        }
+      } catch (error) {
+        console.error('Error setting up Monaco keyboard shortcuts:', error);
+      }
+
+      // Focus the editor
+      try {
+        editor.focus();
+      } catch (error) {
+        console.warn('Error focusing editor:', error);
+      }
+
+      setIsEditorReady(true);
+    } catch (error) {
+      console.error('Monaco editor mount error:', error);
+      setError('Failed to initialize code editor');
     }
-  }, [fontSize, wordWrap, minimap]);
+  }, [fontSize, wordWrap, minimap, language, manualSave, setError]);
+
+  const handleEditorChange = useCallback((value: string | undefined) => {
+    if (!isEditorReady) return;
+    
+    try {
+      if (value !== undefined && value !== content) {
+        setContent(value);
+        
+        // Basic syntax validation for Python
+        if (language === 'python') {
+          const validation = validatePythonSyntax(value);
+          if (!validation.isValid && validation.error) {
+            console.warn('Python syntax issues:', validation.error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Editor change error:', error);
+    }
+  }, [content, language, setContent, isEditorReady]);
+
+  const handleSaveClick = useCallback(async () => {
+    try {
+      await manualSave();
+    } catch (error) {
+      console.error('Save click error:', error);
+      setError('Failed to save file');
+    }
+  }, [manualSave, setError]);
+
+  // Update editor options when store changes
+  useEffect(() => {
+    if (editorRef.current && isEditorReady) {
+      try {
+        editorRef.current.updateOptions({
+          fontSize,
+          wordWrap,
+          minimap: { enabled: minimap }
+        });
+      } catch (error) {
+        console.warn('Error updating editor options:', error);
+      }
+    }
+  }, [fontSize, wordWrap, minimap, isEditorReady]);
 
   const getStatusText = () => {
     if (!currentFile) return 'No file selected';
@@ -133,7 +175,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
             variant="ghost"
             size="sm"
             onClick={handleSaveClick}
-            disabled={!hasUnsavedChanges}
+            disabled={!hasUnsavedChanges || !isEditorReady}
             className="h-8 px-2"
           >
             <Save className="h-4 w-4" />
@@ -210,6 +252,15 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
               <div className="text-sm text-muted-foreground">Loading editor...</div>
             </div>
           }
+          beforeMount={(monaco) => {
+            // Configure Monaco before it mounts
+            try {
+              // Set up any global Monaco configurations here
+              console.log('Monaco editor preparing to mount');
+            } catch (error) {
+              console.error('Monaco beforeMount error:', error);
+            }
+          }}
         />
       </div>
 
@@ -219,6 +270,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
           <span>Python</span>
           <span>UTF-8</span>
           <span>LF</span>
+          {!isEditorReady && <span className="text-yellow-500">Loading...</span>}
         </div>
         
         <div className="flex items-center gap-4">
