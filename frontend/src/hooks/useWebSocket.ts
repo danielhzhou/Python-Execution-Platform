@@ -10,10 +10,11 @@ export function useWebSocket() {
   
   const {
     setConnected,
-    addOutput,
-    containerId
+    addOutput
   } = useTerminalStore();
-  const { setError } = useAppStore();
+  const { setError, currentContainer } = useAppStore();
+  
+  const containerId = currentContainer?.id || null;
 
   // Method to set terminal reference from Terminal component
   const setTerminalRef = useCallback((terminal: any) => {
@@ -28,6 +29,13 @@ export function useWebSocket() {
     }
 
     console.log('🔌 Connecting WebSocket to container:', containerId);
+
+    // Disconnect existing connection first to prevent duplicates
+    if (wsRef.current) {
+      console.log('🔌 Disconnecting existing WebSocket before reconnecting');
+      wsRef.current.disconnect();
+      wsRef.current = null;
+    }
 
     if (!wsRef.current) {
       wsRef.current = new WebSocketManager();
@@ -62,22 +70,6 @@ export function useWebSocket() {
         }
       });
 
-      wsRef.current.on('output', (message: WebSocketMessage) => {
-        console.log('📥 Received output:', message);
-        if (message.type === 'output' && message.data?.content) {
-          if (terminalRef.current) {
-            try {
-              console.log('📝 Writing to terminal:', message.data.content);
-              terminalRef.current.write(message.data.content);
-            } catch (error) {
-              console.error('Error writing to terminal:', error);
-            }
-          } else {
-            console.warn('⚠️ Terminal ref not available for output');
-          }
-          addOutput(message.data.content);
-        }
-      });
 
       // Handle connection confirmation
       wsRef.current.on('connected', (message: WebSocketMessage) => {
@@ -87,23 +79,14 @@ export function useWebSocket() {
           setConnected(true); // Set connected=true when terminal session is ready
           if (terminalRef.current) {
             try {
-              // Clear any existing content and show welcome
-              terminalRef.current.clear();
-              
-              // Test if terminal is working by writing directly
-              terminalRef.current.write('Testing terminal...\r\n');
-              
-              terminalRef.current.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
-              terminalRef.current.writeln('\x1b[1;32m│ Ready for Python development         │\x1b[0m');
-              terminalRef.current.writeln('\x1b[1;32m╰───────────────────────────────────────╯\x1b[0m');
-              terminalRef.current.writeln('');
+              // Don't clear - just append connection message
               terminalRef.current.writeln(`\x1b[32m✅ Connected to container\x1b[0m`);
               terminalRef.current.write('\x1b[1;32m$ \x1b[0m');
               
               // Focus the terminal
               terminalRef.current.focus();
               
-              console.log('✅ Welcome message written to terminal');
+              console.log('✅ Connection message written to terminal');
               
               // Send a test command to see if terminal responds
               setTimeout(() => {

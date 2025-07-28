@@ -151,6 +151,9 @@ export class WebSocketManager {
       this.ws = null;
     }
     
+    // Clear all event handlers to prevent memory leaks and duplicate handlers
+    this.eventHandlers.clear();
+    
     this.containerId = null;
     this.reconnectAttempts = 0;
   }

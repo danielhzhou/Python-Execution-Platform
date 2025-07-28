@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { WebLinksAddon } from 'xterm-addon-web-links';
+import { FitAddon } from 'xterm-addon-fit';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useAppStore } from '../../stores/appStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -16,6 +17,7 @@ interface TerminalProps {
 export function Terminal({ className }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const [isTerminalInitialized, setIsTerminalInitialized] = useState(false);
 
   const {
@@ -27,6 +29,14 @@ export function Terminal({ className }: TerminalProps) {
   } = useTerminalStore();
 
   const { currentContainer, loading } = useAppStore();
+  
+  // Debug: Track renders
+  console.log('📱 Terminal component render:', {
+    hasXterm: !!xtermRef.current,
+    isInitialized: isTerminalInitialized,
+    containerExists: !!currentContainer,
+    isConnected
+  });
   const { connect, disconnect, sendCommand: wsSendCommand, setTerminalRef } = useWebSocket();
 
   // Show loading state when container is being created or terminal is connecting
@@ -38,6 +48,14 @@ export function Terminal({ className }: TerminalProps) {
       console.log('Terminal init skipped:', { hasRef: !!terminalRef.current, isInitialized: isTerminalInitialized });
       return;
     }
+    
+    console.log('🔄 Terminal useEffect triggered with dependencies:', {
+      theme: theme.background,
+      fontSize,
+      fontFamily,
+      hasTerminalRef: !!terminalRef.current,
+      isInitialized: isTerminalInitialized
+    });
     
     console.log('🖥️ Initializing terminal...');
 
@@ -59,19 +77,21 @@ export function Terminal({ className }: TerminalProps) {
           cursorStyle: 'block',
           scrollback: 1000,
           tabStopWidth: 4,
-          allowTransparency: false,  // Disable transparency for better visibility
+          allowTransparency: false,
           macOptionIsMeta: true,
           rightClickSelectsWord: true,
           convertEol: true,
-          cols: 80,  // Fixed width
-          rows: 24,  // Fixed height
+          // Remove fixed cols/rows to allow FitAddon to handle sizing
         });
 
         // Create addons
         webLinksAddon = new WebLinksAddon();
+        const fitAddon = new FitAddon();
+        fitAddonRef.current = fitAddon;
 
         // Load addons before opening terminal
         terminal.loadAddon(webLinksAddon);
+        terminal.loadAddon(fitAddon);
 
         // Store refs
         xtermRef.current = terminal;
@@ -90,6 +110,19 @@ export function Terminal({ className }: TerminalProps) {
           });
           
           terminal.open(terminalRef.current);
+          
+          // Fit terminal to container size
+          setTimeout(() => {
+            if (fitAddonRef.current && terminal) {
+              try {
+                fitAddonRef.current.fit();
+                console.log('📏 Terminal fitted to container');
+              } catch (error) {
+                console.warn('FitAddon error:', error);
+              }
+            }
+          }, 100);
+          
           xtermRef.current = terminal;
           
           // Pass terminal reference to WebSocket hook
@@ -98,13 +131,19 @@ export function Terminal({ className }: TerminalProps) {
           // Mark terminal as initialized
           setIsTerminalInitialized(true);
 
+          // Show initial prompt even without WebSocket connection
+          terminal.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
+          terminal.writeln('\x1b[1;32m│ Initializing terminal...               │\x1b[0m');
+          terminal.writeln('\x1b[1;32m╰───────────────────────────────────────╯\x1b[0m');
+          terminal.writeln('');
+
           // Focus the terminal when ready
           setTimeout(() => {
             if (terminal) {
               terminal.focus();
               console.log('🎯 Terminal focused');
             }
-          }, 100);
+          }, 200);
 
           // Handle terminal input with error boundaries
           terminal.onData((data) => {
@@ -161,7 +200,7 @@ export function Terminal({ className }: TerminalProps) {
       xtermRef.current = null;
       setIsTerminalInitialized(false);
     };
-  }, [theme, fontSize, fontFamily, currentContainer, setTerminalRef]);
+  }, [theme, fontSize, fontFamily, setTerminalRef]);
 
   // Auto-connect WebSocket when terminal is ready
   useEffect(() => {
@@ -169,6 +208,23 @@ export function Terminal({ className }: TerminalProps) {
       connect();
     }
   }, [currentContainer, isConnected, connect, isTerminalInitialized]);
+
+  // Handle window resize to fit terminal
+  useEffect(() => {
+    const handleResize = () => {
+      if (fitAddonRef.current && xtermRef.current) {
+        try {
+          fitAddonRef.current.fit();
+          console.log('🔄 Terminal resized');
+        } catch (error) {
+          console.warn('Terminal resize error:', error);
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isTerminalInitialized]);
 
   // Handle WebSocket messages (terminal output)
   useEffect(() => {
@@ -181,10 +237,13 @@ export function Terminal({ className }: TerminalProps) {
   const handleClearTerminal = useCallback(() => {
     if (xtermRef.current) {
       xtermRef.current.clear();
+      xtermRef.current.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
+      xtermRef.current.writeln('\x1b[1;32m│ Terminal cleared                       │\x1b[0m');
+      xtermRef.current.writeln('\x1b[1;32m╰───────────────────────────────────────╯\x1b[0m');
+      xtermRef.current.writeln('');
       xtermRef.current.write('\x1b[1;32m$ \x1b[0m');
     }
     clearOutput();
-    setIsTerminalInitialized(false); // Reset initialization state
   }, [clearOutput]);
 
   const handleReconnect = useCallback(() => {
@@ -273,7 +332,8 @@ export function Terminal({ className }: TerminalProps) {
             cursor: 'text',
             position: 'relative',
             zIndex: 1,
-            overflow: 'hidden'
+            overflow: 'auto',
+            minHeight: '400px'
           }}
           onClick={() => {
             // Focus the terminal when clicked
