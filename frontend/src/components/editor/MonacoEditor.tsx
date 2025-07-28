@@ -60,20 +60,25 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     setError(null);
 
     try {
-      // Save the code to a temporary file and execute it
-      const timestamp = Date.now();
-      const filename = `script_${timestamp}.py`;
+      // Use current file if available, otherwise create a temporary file
+      let filename = currentFile?.path || `/workspace/script_${Date.now()}.py`;
+      
+      // If using current file, save it first
+      if (currentFile) {
+        await manualSave();
+        filename = currentFile.path;
+      } else {
+        // Create temporary file for execution
+        filename = `/workspace/script_${Date.now()}.py`;
+        sendCommand(`cat > ${filename} << 'EOF'\n${content}\nEOF\n`);
+      }
       
       // Clear terminal and show execution start
       sendCommand('\x0c'); // Clear screen
-      sendCommand(`echo "🚀 Executing Python code..."\n`);
-      
-      // Create the Python file with the current code
-      const escapedContent = content.replace(/'/g, "'\"'\"'");
-      sendCommand(`cat > /workspace/${filename} << 'EOF'\n${content}\nEOF\n`);
+      sendCommand(`echo "🚀 Executing ${filename.split('/').pop()}..."\n`);
       
       // Execute the Python file
-      sendCommand(`python3 /workspace/${filename}\n`);
+      sendCommand(`python3 ${filename}\n`);
       
       // Show completion message
       sendCommand(`echo "\n✅ Execution completed."\n`);
@@ -84,7 +89,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     } finally {
       setIsExecuting(false);
     }
-  }, [content, currentContainer, isConnected, sendCommand, setError]);
+  }, [content, currentContainer, currentFile, isConnected, sendCommand, setError, manualSave]);
 
   // Stop code execution (send interrupt signal)
   const stopExecution = useCallback(() => {

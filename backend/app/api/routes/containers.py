@@ -7,6 +7,7 @@ import logging
 import uuid
 import os
 from datetime import datetime
+from pydantic import BaseModel
 
 from app.core.auth import get_current_user_id
 from app.models.container import ContainerCreateRequest, ContainerResponse, TerminalSession
@@ -14,6 +15,12 @@ from app.services.container_service import container_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.get("/health")
+async def container_health():
+    """Simple health check for container endpoints"""
+    return {"status": "ok", "message": "Container endpoints are working"}
 
 
 @router.post("/create", response_model=ContainerResponse)
@@ -228,4 +235,350 @@ async def get_user_container_status(user_id: str = Depends(get_current_user_id))
         
     except Exception as e:
         logger.error(f"Error getting container status for user {user_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get container status: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to get container status: {str(e)}")
+
+
+# File system models
+class ContainerFileNode(BaseModel):
+    name: str
+    path: str
+    type: str  # 'file' or 'directory'
+    size: Optional[int] = None
+
+
+class ContainerFileRequest(BaseModel):
+    path: str
+    content: str
+    containerId: str
+
+
+class ContainerFileResponse(BaseModel):
+    path: str
+    content: str
+    size: int
+    modified: str
+
+
+@router.get("/{container_id}/files", response_model=List[ContainerFileNode])
+async def list_container_files(
+    container_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """List files in the container's /workspace directory"""
+    try:
+        logger.info(f"🗂️ Starting file listing for container_id: {container_id}, user: {user_id}")
+        
+        # Verify user owns this container
+        logger.info(f"🔍 Looking up session for container_id: {container_id}")
+        session = await container_service.get_container_session(container_id)
+        if not session:
+            logger.error(f"❌ No session found for container_id: {container_id}")
+            logger.info(f"🔍 Attempting direct session lookup by session ID...")
+            
+            # Try direct session lookup as fallback
+            from app.services.database_service import db_service
+            session = await db_service.get_terminal_session(container_id)
+            if not session:
+                logger.error(f"❌ No session found by session ID either: {container_id}")
+                raise HTTPException(status_code=404, detail="Container session not found")
+            else:
+                logger.info(f"✅ Found session by session ID: {session.id}")
+        else:
+            logger.info(f"✅ Found session by container lookup: {session.id}")
+        
+        if str(session.user_id) != user_id:
+            logger.error(f"❌ Access denied: User {user_id} does not own session {container_id} (owner: {session.user_id})")
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        logger.info(f"✅ Session verified - ID: {session.id}, Container: {session.container_id}, Status: {session.status}")
+        
+        # Check if session status is running
+        if session.status != 'running':
+            logger.warning(f"⚠️ Container status is '{session.status}', not 'running'")
+            if session.status in ['creating', 'stopped', 'error', 'terminated']:
+                logger.error(f"❌ Container is not ready for file operations (status: {session.status})")
+                raise HTTPException(status_code=400, detail=f"Container is not ready (status: {session.status})")
+        
+        # Use the container service's docker client for consistency
+        if not hasattr(container_service, 'docker') or container_service.docker is None:
+            logger.error("❌ Docker client not available in container service")
+            raise HTTPException(status_code=500, detail="Docker service not available")
+        
+        try:
+            # Use python-on-whales client from container_service
+            logger.info(f"🐳 Getting Docker container using python-on-whales: {session.container_id}")
+            
+            # Get container using python-on-whales
+            container = container_service.docker.container.inspect(session.container_id)
+            if not container:
+                logger.error(f"❌ Container not found: {session.container_id}")
+                raise HTTPException(status_code=404, detail="Docker container not found")
+            
+            logger.info(f"✅ Got container: {container.name} (status: {container.state.status})")
+            
+            # Check if container is running
+            if not container.state.running:
+                logger.error(f"❌ Container is not running: {container.state.status}")
+                raise HTTPException(status_code=400, detail=f"Container is not running (status: {container.state.status})")
+            
+            # List files in /workspace using exec
+            logger.info("📁 Executing find command in container...")
+            try:
+                # python-on-whales execute returns a string directly
+                find_output = container.execute(
+                    ["find", "/workspace", "-type", "f", "-o", "-type", "d"]
+                )
+                
+                if find_output is None:
+                    logger.error("❌ Find command returned None")
+                    raise HTTPException(status_code=500, detail="Failed to list container files")
+                
+                output_lines = find_output.strip().split('\n') if find_output else []
+                logger.info(f"📁 Found {len(output_lines)} file/directory entries")
+                logger.info(f"📁 File entries: {output_lines[:10]}...")  # Log first 10 entries
+                
+            except Exception as find_error:
+                logger.error(f"❌ Find command failed: {str(find_error)}")
+                raise HTTPException(status_code=500, detail="Failed to list container files")
+            
+            files = []
+            
+            for line in output_lines:
+                if line and line != '/workspace':
+                    try:
+                        # Get file info using stat - python-on-whales execute returns string directly
+                        stat_output = container.execute(
+                            ["stat", "-c", "%F %s", line]
+                        )
+                        
+                        if stat_output and stat_output.strip():
+                            parts = stat_output.strip().split(' ', 1)
+                            
+                            if len(parts) == 2:
+                                file_type, size_str = parts
+                                
+                                # Convert stat file type to our format
+                                if 'directory' in file_type:
+                                    node_type = 'directory'
+                                    size = None
+                                else:
+                                    node_type = 'file'
+                                    try:
+                                        size = int(size_str)
+                                    except ValueError:
+                                        size = 0
+                                
+                                files.append(ContainerFileNode(
+                                    name=os.path.basename(line),
+                                    path=line,
+                                    type=node_type,
+                                    size=size
+                                ))
+                        else:
+                            logger.warning(f"⚠️ Failed to stat file: {line}")
+                    except Exception as file_error:
+                        logger.warning(f"⚠️ Error processing file {line}: {file_error}")
+                        continue
+            
+            logger.info(f"✅ Successfully processed {len(files)} files in container {container_id}")
+            return files
+            
+        except Exception as docker_error:
+            logger.error(f"❌ Docker operation failed: {str(docker_error)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Docker error: {str(docker_error)}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error listing container files: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
+
+
+@router.get("/{container_id}/files/content", response_model=ContainerFileResponse)
+async def get_container_file_content(
+    container_id: str,
+    path: str = Query(...),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Get content of a file in the container"""
+    try:
+        logger.info(f"Getting file content for {path} in container {container_id}")
+        
+        # Verify user owns this container
+        session = await container_service.get_container_session(container_id)
+        if not session or str(session.user_id) != user_id:
+            raise HTTPException(status_code=404, detail="Container not found or access denied")
+        
+        # Get docker client
+        import docker
+        client = docker.from_env()
+        
+        try:
+            container = client.containers.get(session.container_id)
+            
+            # Check if file exists and get its size
+            stat_result = container.exec_run(
+                f"stat -c '%s' '{path}'",
+                stdout=True,
+                stderr=True
+            )
+            
+            if stat_result.exit_code != 0:
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            size = int(stat_result.output.decode().strip())
+            
+            # Read file content
+            cat_result = container.exec_run(
+                f"cat '{path}'",
+                stdout=True,
+                stderr=True
+            )
+            
+            if cat_result.exit_code != 0:
+                raise HTTPException(status_code=500, detail="Failed to read file")
+            
+            content = cat_result.output.decode()
+            
+            return ContainerFileResponse(
+                path=path,
+                content=content,
+                size=size,
+                modified=datetime.utcnow().isoformat()
+            )
+            
+        except docker.errors.NotFound:
+            raise HTTPException(status_code=404, detail="Container not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting file content: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get file content: {str(e)}")
+
+
+@router.post("/{container_id}/files", response_model=ContainerFileResponse)
+async def save_container_file(
+    container_id: str,
+    request: ContainerFileRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Save content to a file in the container"""
+    try:
+        logger.info(f"Saving file {request.path} in container {container_id}")
+        
+        # Verify user owns this container
+        session = await container_service.get_container_session(container_id)
+        if not session or str(session.user_id) != user_id:
+            raise HTTPException(status_code=404, detail="Container not found or access denied")
+        
+        # Get docker client
+        import docker
+        client = docker.from_env()
+        
+        try:
+            container = client.containers.get(session.container_id)
+            
+            # Create directory if needed
+            dir_path = os.path.dirname(request.path)
+            if dir_path and dir_path != '/':
+                container.exec_run(f"mkdir -p '{dir_path}'")
+            
+            # Write file content using cat with heredoc to handle special characters
+            escaped_content = request.content.replace("'", "'\"'\"'")
+            write_result = container.exec_run(
+                f"cat > '{request.path}' << 'EOF'\n{request.content}\nEOF",
+                stdout=True,
+                stderr=True
+            )
+            
+            if write_result.exit_code != 0:
+                logger.error(f"Error writing file: {write_result.output.decode()}")
+                raise HTTPException(status_code=500, detail="Failed to write file")
+            
+            # Get file size
+            stat_result = container.exec_run(
+                f"stat -c '%s' '{request.path}'",
+                stdout=True,
+                stderr=True
+            )
+            
+            size = 0
+            if stat_result.exit_code == 0:
+                try:
+                    size = int(stat_result.output.decode().strip())
+                except ValueError:
+                    pass
+            
+            logger.info(f"Successfully saved file {request.path} ({size} bytes)")
+            
+            return ContainerFileResponse(
+                path=request.path,
+                content=request.content,
+                size=size,
+                modified=datetime.utcnow().isoformat()
+            )
+            
+        except docker.errors.NotFound:
+            raise HTTPException(status_code=404, detail="Container not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving file: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+
+
+@router.delete("/{container_id}/files")
+async def delete_container_file(
+    container_id: str,
+    path: str = Query(...),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Delete a file in the container"""
+    try:
+        logger.info(f"Deleting file {path} in container {container_id}")
+        
+        # Verify user owns this container
+        session = await container_service.get_container_session(container_id)
+        if not session or str(session.user_id) != user_id:
+            raise HTTPException(status_code=404, detail="Container not found or access denied")
+        
+        # Get docker client
+        import docker
+        client = docker.from_env()
+        
+        try:
+            container = client.containers.get(session.container_id)
+            
+            # Check if file exists
+            stat_result = container.exec_run(
+                f"test -e '{path}'",
+                stdout=True,
+                stderr=True
+            )
+            
+            if stat_result.exit_code != 0:
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            # Delete file
+            rm_result = container.exec_run(
+                f"rm -f '{path}'",
+                stdout=True,
+                stderr=True
+            )
+            
+            if rm_result.exit_code != 0:
+                raise HTTPException(status_code=500, detail="Failed to delete file")
+            
+            logger.info(f"Successfully deleted file {path}")
+            return {"message": "File deleted successfully"}
+            
+        except docker.errors.NotFound:
+            raise HTTPException(status_code=404, detail="Container not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting file: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}") 

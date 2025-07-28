@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
+import { FileTree } from './components/layout/FileTree';
 
 import { MonacoEditor } from './components/editor/MonacoEditor';
 import { Terminal } from './components/terminal/Terminal';
@@ -112,20 +113,30 @@ function App() {
             {/* Sidebar */}
             <Sidebar />
             
-            {/* Main Content - Vertical Split */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Code Editor - Top Half */}
-              <div className="flex-1 border-b overflow-hidden">
-                <MonacoErrorBoundary>
-                  <MonacoEditor />
-                </MonacoErrorBoundary>
+            {/* Main Content - Three Panel Layout */}
+            <div className="flex-1 flex overflow-hidden">
+              {/* File Tree - Left Panel */}
+              <div className="w-64 border-r overflow-hidden">
+                <ErrorBoundary>
+                  <FileTree />
+                </ErrorBoundary>
               </div>
               
-              {/* Terminal - Bottom Half */}
-              <div className="flex-1 overflow-hidden">
-                <TerminalErrorBoundary>
-                  <Terminal />
-                </TerminalErrorBoundary>
+              {/* Editor and Terminal - Right Panels */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Code Editor - Top Half */}
+                <div className="flex-1 border-b overflow-hidden">
+                  <MonacoErrorBoundary>
+                    <MonacoEditor />
+                  </MonacoErrorBoundary>
+                </div>
+                
+                {/* Terminal - Bottom Half */}
+                <div className="flex-1 overflow-hidden">
+                  <TerminalErrorBoundary>
+                    <Terminal />
+                  </TerminalErrorBoundary>
+                </div>
               </div>
             </div>
           </div>
