@@ -124,9 +124,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Container actions
   setCurrentContainer: (container) => set({ currentContainer: container }),
   
-  addContainer: (container) => set(state => ({
-    containers: [...state.containers, container]
-  })),
+  addContainer: (container) => set(state => {
+    // Check if container already exists
+    const existingIndex = state.containers.findIndex(c => c.id === container.id);
+    
+    if (existingIndex >= 0) {
+      // Replace existing container
+      const updatedContainers = [...state.containers];
+      updatedContainers[existingIndex] = container;
+      return { containers: updatedContainers };
+    } else {
+      // Add new container
+      return { containers: [...state.containers, container] };
+    }
+  }),
   
   updateContainer: (id, updates) => set(state => ({
     containers: state.containers.map(container =>

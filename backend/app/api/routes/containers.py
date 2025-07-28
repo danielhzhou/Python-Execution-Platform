@@ -19,18 +19,13 @@ logger = logging.getLogger(__name__)
 @router.post("/create", response_model=ContainerResponse)
 async def create_container(
     request: ContainerCreateRequest,
-    replace_existing: bool = Query(False, description="Replace existing active container if one exists"),
     user_id: str = Depends(get_current_user_id)
 ):
-    """Create a new container for code execution"""
+    """Create a new container for code execution - automatically ensures single container per user"""
     try:
         logger.info(f"Creating container for user {user_id}")
         
-        # If replace_existing is True, cleanup any existing containers first
-        if replace_existing:
-            logger.info("Cleaning up existing containers before creating new one")
-            await cleanup_user_containers(user_id)
-        
+        # The container service now automatically handles cleanup of existing containers
         session = await container_service.create_container(
             user_id=user_id,
             project_id=request.project_id,
@@ -51,32 +46,8 @@ async def create_container(
             user_id=str(session.user_id)
         )
         
-    except ValueError as e:
-        logger.warning(f"Container creation validation error for user {user_id}: {str(e)}")
-        if "already has an active container" in str(e):
-            raise HTTPException(
-                status_code=409, 
-                detail={
-                    "error": "User already has an active container",
-                    "message": "You already have an active container. Please terminate it first or use replace_existing=true",
-                    "suggestion": "Try calling /api/containers/cleanup first, or add ?replace_existing=true to this request"
-                }
-            )
-        raise HTTPException(status_code=400, detail=str(e))
-    except ImportError as e:
-        logger.error(f"Missing dependency for container creation: {str(e)}")
-        raise HTTPException(
-            status_code=500, 
-            detail="Container service is not properly configured. Please check Docker installation and configuration."
-        )
-    except ConnectionError as e:
-        logger.error(f"Docker connection error: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail="Cannot connect to Docker daemon. Please ensure Docker is running and accessible."
-        )
     except Exception as e:
-        logger.error(f"Unexpected error creating container for user {user_id}: {str(e)}", exc_info=True)
+        logger.error(f"Error creating container for user {user_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, 
             detail=f"Failed to create container: {str(e)}"

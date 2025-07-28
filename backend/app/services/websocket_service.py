@@ -27,12 +27,6 @@ class WebSocketMessage(BaseModel):
 class TerminalInput(BaseModel):
     """Terminal input message"""
     data: str
-    
-    
-class TerminalResize(BaseModel):
-    """Terminal resize message"""
-    rows: int
-    cols: int
 
 
 class WebSocketManager:
@@ -90,17 +84,28 @@ class WebSocketManager:
         try:
             # Parse message
             data = json.loads(message)
-            msg = WebSocketMessage(**data)
+            msg_type = data.get("type")
+            msg_data = data.get("data", {})
+            
+            logger.info(f"Received WebSocket message: type={msg_type}, session={session_id}")
             
             # Handle different message types
-            if msg.type == "input":
-                await self._handle_terminal_input(session_id, msg.data)
-            elif msg.type == "resize":
-                await self._handle_terminal_resize(session_id, msg.data)
-            elif msg.type == "ping":
+            if msg_type == "input" or msg_type == "terminal_input":
+                # Handle both formats: {"type": "input", "data": {"data": "..."}} and {"type": "terminal_input", "data": "..."}
+                if isinstance(msg_data, str):
+                    # Direct string format from frontend
+                    await self._handle_terminal_input(session_id, msg_data)
+                elif isinstance(msg_data, dict) and "data" in msg_data:
+                    # Nested format
+                    await self._handle_terminal_input(session_id, msg_data["data"])
+                else:
+                    # Fallback - treat the data as the input
+                    await self._handle_terminal_input(session_id, str(msg_data))
+                    
+            elif msg_type == "ping":
                 await self._send_to_websocket(websocket, {"type": "pong"})
             else:
-                logger.warning(f"Unknown message type: {msg.type}")
+                logger.warning(f"Unknown message type: {msg_type}")
                 
         except (json.JSONDecodeError, ValidationError) as e:
             logger.error(f"Invalid WebSocket message: {e}")
@@ -119,13 +124,10 @@ class WebSocketManager:
         try:
             async for output in output_stream:
                 # Send output to all connected WebSockets for this session
+                # Use 'terminal_output' type to match frontend expectations
                 await self._broadcast_to_session(session_id, {
-                    "type": "output",
-                    "data": {
-                        "content": output.data,
-                        "stream": output.stream,
-                        "timestamp": output.timestamp.isoformat()
-                    }
+                    "type": "terminal_output",
+                    "data": output.data  # Send data directly, not nested
                 })
                 
         except Exception as e:
@@ -135,50 +137,26 @@ class WebSocketManager:
                 "data": {"message": "Terminal output stream error"}
             })
             
-    async def _handle_terminal_input(self, session_id: str, data: dict):
+    async def _handle_terminal_input(self, session_id: str, input_data: str):
         """Handle terminal input from WebSocket"""
         try:
-            input_data = TerminalInput(**data)
+            logger.info(f"Sending input to terminal {session_id}: {repr(input_data)}")
             
-            # Send input to terminal
-            success = await terminal_service.send_input(session_id, input_data.data)
+            # Send input directly to terminal service
+            success = await terminal_service.send_input(session_id, input_data)
             if not success:
+                logger.error(f"Failed to send input to terminal {session_id}")
                 await self._broadcast_to_session(session_id, {
                     "type": "error",
                     "data": {"message": "Failed to send input to terminal"}
                 })
                 
-        except ValidationError as e:
-            logger.error(f"Invalid terminal input: {e}")
-            
-    async def _handle_terminal_resize(self, session_id: str, data: dict):
-        """Handle terminal resize from WebSocket"""
-        try:
-            resize_data = TerminalResize(**data)
-            
-            # Resize terminal
-            success = await terminal_service.resize_terminal(
-                session_id, 
-                resize_data.rows, 
-                resize_data.cols
-            )
-            
-            if success:
-                await self._broadcast_to_session(session_id, {
-                    "type": "resized",
-                    "data": {
-                        "rows": resize_data.rows,
-                        "cols": resize_data.cols
-                    }
-                })
-            else:
-                await self._broadcast_to_session(session_id, {
-                    "type": "error",
-                    "data": {"message": "Failed to resize terminal"}
-                })
-                
-        except ValidationError as e:
-            logger.error(f"Invalid resize data: {e}")
+        except Exception as e:
+            logger.error(f"Error handling terminal input: {e}")
+            await self._broadcast_to_session(session_id, {
+                "type": "error", 
+                "data": {"message": "Terminal input error"}
+            })
             
     async def _broadcast_to_session(self, session_id: str, message: dict):
         """Broadcast a message to all WebSockets connected to a session"""
@@ -240,43 +218,89 @@ class WebSocketService:
     async def handle_terminal_connection(self, websocket: WebSocket, session_id: str):
         """Handle a new terminal WebSocket connection"""
         try:
-            # Verify session exists in database
-            container_session = await db_service.get_terminal_session(session_id)
+            logger.info(f"🔌 WebSocket connection attempt for session: {session_id}")
+            
+            # First, try to find the session by ID (if it's a valid UUID)
+            container_session = None
+            actual_session_id = session_id
+            
+            try:
+                # Try direct lookup first (if session_id is a UUID)
+                container_session = await db_service.get_terminal_session(session_id)
+                if container_session:
+                    logger.info(f"✅ Found session by direct ID lookup: {session_id}")
+            except Exception as e:
+                logger.info(f"Direct session lookup failed (expected if using container name): {e}")
+            
+            # If not found by direct lookup, try to find by container name
             if not container_session:
+                logger.info(f"🔍 Searching for session by container name: {session_id}")
+                
+                from app.services.container_service import container_service
+                
+                # Look through active containers to find matching container name
+                found_session_id = None
+                for db_session_id, container in container_service.active_containers.items():
+                    if hasattr(container, 'name') and container.name == session_id:
+                        found_session_id = db_session_id
+                        logger.info(f"🎯 Found session by container name: {session_id} -> {db_session_id}")
+                        break
+                
+                if found_session_id:
+                    actual_session_id = found_session_id
+                    container_session = await db_service.get_terminal_session(actual_session_id)
+                else:
+                    # If still not found, try to find by container_id field in database
+                    logger.info(f"🔍 Searching database for container_id matching: {session_id}")
+                    sessions = await db_service.get_all_terminal_sessions()
+                    for session in sessions:
+                        if session.container_id and session.container_id == session_id:
+                            actual_session_id = session.id
+                            container_session = session
+                            logger.info(f"🎯 Found session by container_id: {session_id} -> {session.id}")
+                            break
+            
+            if not container_session:
+                logger.error(f"❌ Could not find session {session_id} by any method")
                 await websocket.close(code=1008, reason="Invalid session ID")
                 return
                 
+            logger.info(f"✅ Session validated: {actual_session_id}")
+            
             # Create terminal session if it doesn't exist
-            terminal_session = await terminal_service.get_terminal_session(session_id)
+            terminal_session = await terminal_service.get_terminal_session(actual_session_id)
             if not terminal_session:
-                success = await terminal_service.create_terminal_session(session_id)
+                logger.info(f"🔧 Creating terminal session for {actual_session_id}")
+                success = await terminal_service.create_terminal_session(actual_session_id)
                 if not success:
+                    logger.error(f"❌ Failed to create terminal session for {actual_session_id}")
                     await websocket.close(code=1011, reason="Failed to create terminal session")
                     return
                     
-            # Connect WebSocket
-            await self.manager.connect(websocket, session_id)
+            # Connect WebSocket using the correct session ID
+            await self.manager.connect(websocket, actual_session_id)
+            logger.info(f"🎉 WebSocket connected successfully for session {actual_session_id}")
             
             # Start output streaming in background
             output_task = asyncio.create_task(
-                self.manager.start_terminal_output_stream(session_id)
+                self.manager.start_terminal_output_stream(actual_session_id)
             )
             
             try:
                 # Handle incoming messages
                 while True:
                     message = await websocket.receive_text()
-                    await self.manager.handle_message(websocket, session_id, message)
+                    await self.manager.handle_message(websocket, actual_session_id, message)
                     
             except WebSocketDisconnect:
-                logger.info(f"WebSocket disconnected for session {session_id}")
+                logger.info(f"WebSocket disconnected for session {actual_session_id}")
             finally:
                 # Clean up
                 output_task.cancel()
-                await self.manager.disconnect(websocket, session_id)
+                await self.manager.disconnect(websocket, actual_session_id)
                 
         except Exception as e:
-            logger.error(f"Error in WebSocket connection: {e}")
+            logger.error(f"Error in WebSocket connection: {e}", exc_info=True)
             try:
                 await websocket.close(code=1011, reason="Internal server error")
             except:

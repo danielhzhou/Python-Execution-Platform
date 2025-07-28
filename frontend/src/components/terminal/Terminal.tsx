@@ -18,8 +18,6 @@ export function Terminal({ className }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const [currentInput, setCurrentInput] = useState('');
-  const [cursorPosition, setCursorPosition] = useState(0);
   const [isTerminalInitialized, setIsTerminalInitialized] = useState(false);
 
   const {
@@ -27,17 +25,11 @@ export function Terminal({ className }: TerminalProps) {
     theme,
     fontSize,
     fontFamily,
-    commandHistory,
-    historyIndex,
-    currentCommand,
-    setCurrentCommand,
-    navigateHistory,
-    clearOutput,
-    sendCommand
+    clearOutput
   } = useTerminalStore();
 
   const { currentContainer } = useAppStore();
-  const { connect, disconnect, sendCommand: wsSendCommand } = useWebSocket();
+  const { connect, disconnect, sendCommand: wsSendCommand, setTerminalRef } = useWebSocket();
 
   // Initialize terminal with improved error handling
   useEffect(() => {
@@ -51,8 +43,6 @@ export function Terminal({ className }: TerminalProps) {
     let terminal: XTerm | null = null;
     let fitAddon: FitAddon | null = null;
     let webLinksAddon: WebLinksAddon | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-    let resizeTimeout: NodeJS.Timeout | null = null;
 
     const initializeTerminal = async () => {
       try {
@@ -86,6 +76,9 @@ export function Terminal({ className }: TerminalProps) {
         // Store refs
         xtermRef.current = terminal;
         fitAddonRef.current = fitAddon;
+        
+        // Provide terminal reference to WebSocket hook
+        setTerminalRef(terminal);
 
         // Open terminal in container
         if (terminalRef.current) {
@@ -142,24 +135,6 @@ export function Terminal({ className }: TerminalProps) {
 
           attemptFit();
 
-          // Set up ResizeObserver with proper error handling
-          if (terminalRef.current && typeof ResizeObserver !== 'undefined') {
-            resizeObserver = new ResizeObserver((entries) => {
-              for (const entry of entries) {
-                if (entry.target === terminalRef.current) {
-                  if (resizeTimeout) {
-                    clearTimeout(resizeTimeout);
-                  }
-                  resizeTimeout = setTimeout(() => {
-                    safeFit();
-                  }, 200); // Increased delay to reduce frequency
-                }
-              }
-            });
-            
-            resizeObserver.observe(terminalRef.current);
-          }
-
           // Welcome message
           terminal.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
           terminal.writeln('\x1b[1;32m│ Ready for Python development         │\x1b[0m');
@@ -176,15 +151,16 @@ export function Terminal({ className }: TerminalProps) {
           // Handle terminal input with error boundaries
           terminal.onData((data) => {
             try {
-              handleTerminalInput(data);
+              // Send raw input directly to WebSocket instead of handling locally
+              if (isConnected && terminal) {
+                wsSendCommand(data);
+              } else if (!isConnected && terminal) {
+                // If not connected, show a message
+                terminal.write('\r\n\x1b[31m❌ Not connected to container\x1b[0m\r\n');
+              }
             } catch (error) {
               console.error('Terminal input error:', error);
             }
-          });
-
-          // Handle terminal resize
-          terminal.onResize(({ cols, rows }) => {
-            console.log(`Terminal resized: ${cols}x${rows}`);
           });
 
           // Handle selection
@@ -210,12 +186,6 @@ export function Terminal({ className }: TerminalProps) {
     // Cleanup function
     return () => {
       console.log('🧹 Cleaning up terminal...');
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
       if (terminal) {
         try {
           terminal.dispose();
@@ -227,7 +197,7 @@ export function Terminal({ className }: TerminalProps) {
       fitAddonRef.current = null;
       setIsTerminalInitialized(false);
     };
-  }, [theme, fontSize, fontFamily, currentContainer]);
+  }, [theme, fontSize, fontFamily, currentContainer, setTerminalRef]);
 
   // Auto-connect WebSocket when terminal is ready
   useEffect(() => {
@@ -235,126 +205,6 @@ export function Terminal({ className }: TerminalProps) {
       connect();
     }
   }, [currentContainer, isConnected, connect, isTerminalInitialized]);
-
-  // Handle window resize with improved error handling
-  useEffect(() => {
-    const handleResize = () => {
-      if (fitAddonRef.current && xtermRef.current?.element && isTerminalInitialized) {
-        try {
-          // Add delay to ensure DOM has updated
-          setTimeout(() => {
-            if (fitAddonRef.current && xtermRef.current?.element) {
-              fitAddonRef.current.fit();
-            }
-          }, 50);
-        } catch (error) {
-          console.warn('Terminal resize failed:', error);
-        }
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isTerminalInitialized]);
-
-  // Handle terminal input
-  const handleTerminalInput = useCallback((data: string) => {
-    if (!xtermRef.current) return;
-
-    const terminal = xtermRef.current;
-    const code = data.charCodeAt(0);
-
-    // Handle special keys
-    switch (code) {
-      case 13: // Enter
-        terminal.writeln('');
-        if (currentInput.trim()) {
-          // Send command
-          sendCommand(currentInput);
-          setCurrentCommand(currentInput);
-          
-          // Add to history
-          if (currentInput.trim() !== commandHistory[commandHistory.length - 1]) {
-            // This would be handled by the store
-          }
-        }
-        setCurrentInput('');
-        setCursorPosition(0);
-        terminal.write('\x1b[1;32m$ \x1b[0m');
-        break;
-
-      case 127: // Backspace
-        if (cursorPosition > 0) {
-          const newInput = currentInput.slice(0, cursorPosition - 1) + currentInput.slice(cursorPosition);
-          setCurrentInput(newInput);
-          setCursorPosition(cursorPosition - 1);
-          
-          // Update terminal display
-          terminal.write('\b \b');
-        }
-        break;
-
-      case 27: // Escape sequences (arrow keys, etc.)
-        if (data.length === 3) {
-          const direction = data.charCodeAt(2);
-          if (direction === 65) { // Up arrow
-            navigateHistory('up');
-            // Update display with history command
-            const historyCommand = currentCommand;
-            if (historyCommand) {
-              // Clear current line and write history command
-              terminal.write('\r\x1b[K\x1b[1;32m$ \x1b[0m' + historyCommand);
-              setCurrentInput(historyCommand);
-              setCursorPosition(historyCommand.length);
-            }
-          } else if (direction === 66) { // Down arrow
-            navigateHistory('down');
-            const historyCommand = currentCommand;
-            // Clear current line and write history command or empty
-            terminal.write('\r\x1b[K\x1b[1;32m$ \x1b[0m' + (historyCommand || ''));
-            setCurrentInput(historyCommand || '');
-            setCursorPosition((historyCommand || '').length);
-          } else if (direction === 67) { // Right arrow
-            if (cursorPosition < currentInput.length) {
-              setCursorPosition(cursorPosition + 1);
-              terminal.write('\x1b[C');
-            }
-          } else if (direction === 68) { // Left arrow
-            if (cursorPosition > 0) {
-              setCursorPosition(cursorPosition - 1);
-              terminal.write('\x1b[D');
-            }
-          }
-        }
-        break;
-
-      case 3: // Ctrl+C
-        terminal.writeln('^C');
-        terminal.write('\x1b[1;32m$ \x1b[0m');
-        setCurrentInput('');
-        setCursorPosition(0);
-        // Send interrupt signal to backend
-        if (isConnected) {
-          wsSendCommand('\x03'); // Send Ctrl+C
-        }
-        break;
-
-      case 12: // Ctrl+L
-        terminal.clear();
-        terminal.write('\x1b[1;32m$ \x1b[0m' + currentInput);
-        break;
-
-      default:
-        // Regular character input
-        if (code >= 32 && code <= 126) {
-          const newInput = currentInput.slice(0, cursorPosition) + data + currentInput.slice(cursorPosition);
-          setCurrentInput(newInput);
-          setCursorPosition(cursorPosition + 1);
-          terminal.write(data);
-        }
-        break;
-    }
-  }, [currentInput, cursorPosition, commandHistory, currentCommand, isConnected, sendCommand, navigateHistory, setCurrentCommand, wsSendCommand]);
 
   // Handle WebSocket messages (terminal output)
   useEffect(() => {
@@ -370,8 +220,7 @@ export function Terminal({ className }: TerminalProps) {
       xtermRef.current.write('\x1b[1;32m$ \x1b[0m');
     }
     clearOutput();
-    setCurrentInput('');
-    setCursorPosition(0);
+    setIsTerminalInitialized(false); // Reset initialization state
   }, [clearOutput]);
 
   const handleReconnect = useCallback(() => {
@@ -457,7 +306,7 @@ export function Terminal({ className }: TerminalProps) {
         </div>
         
         <div className="flex items-center gap-4">
-          <span>History: {commandHistory.length} commands</span>
+          <span>Connected: {isConnected ? 'Yes' : 'No'}</span>
           <span>Font: {fontSize}px</span>
         </div>
       </div>

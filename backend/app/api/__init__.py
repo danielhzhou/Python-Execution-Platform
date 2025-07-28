@@ -13,5 +13,5 @@ api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
 api_router.include_router(containers.router, prefix="/containers", tags=["containers"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(files.router, prefix="/files", tags=["files"])
-# WebSocket routes should be included under containers to match frontend expectations
-api_router.include_router(websocket.router, prefix="/containers", tags=["websocket"]) 
+# WebSocket routes on separate prefix to avoid auth dependencies
+api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"]) 

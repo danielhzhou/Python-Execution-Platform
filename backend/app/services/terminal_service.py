@@ -127,17 +127,6 @@ class TerminalSession:
                 
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=2.0)
-            
-    async def resize(self, rows: int, cols: int) -> bool:
-        """Resize the terminal"""
-        try:
-            if self.pty_process and self.pty_process.isalive():
-                self.pty_process.setwinsize(rows, cols)
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Failed to resize terminal: {e}")
-            return False
 
 
 class TerminalService:
@@ -366,28 +355,23 @@ class TerminalService:
             )
             return f"Error: {str(e)}"
             
-    async def terminate_session(self, session_id: str) -> bool:
-        """Terminate a terminal session"""
+    async def close_terminal_session(self, session_id: str) -> bool:
+        """Close a terminal session"""
         terminal_session = self.active_sessions.get(session_id)
         if not terminal_session:
             return False
             
-        try:
-            await terminal_session.close()
-            del self.active_sessions[session_id]
-            logger.info(f"Terminal session {session_id} terminated successfully")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to terminate terminal session {session_id}: {e}")
-            return False
-            
-    async def resize_terminal(self, session_id: str, rows: int, cols: int) -> bool:
-        """Resize a terminal session"""
-        terminal_session = self.active_sessions.get(session_id)
-        if not terminal_session:
-            return False
-            
-        return await terminal_session.resize(rows, cols)
+        await terminal_session.close()
+        del self.active_sessions[session_id]
+        
+        # Update database status
+        await db_service.update_terminal_session(
+            session_id, 
+            status=ContainerStatus.TERMINATED.value,
+            terminated_at=datetime.utcnow()
+        )
+        
+        return True
 
 
 # Create global terminal service instance

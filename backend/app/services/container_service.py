@@ -95,7 +95,7 @@ class ContainerService:
         project_name: Optional[str] = None,
         initial_files: Optional[Dict[str, str]] = None
     ) -> TerminalSession:
-        """Create a new container for code execution"""
+        """Create a new container for code execution - ensures only one container per user"""
         logger.info(f"🚀 Starting container creation for user {user_id}")
         logger.info(f"   Project ID: {project_id}")
         logger.info(f"   Project Name: {project_name}")
@@ -105,13 +105,19 @@ class ContainerService:
             logger.error("❌ Docker client not available - cannot create container")
             raise ImportError("Docker client not available. Please install python-on-whales and ensure Docker is running.")
         
-        # Check for existing active containers
+        # ALWAYS cleanup existing containers first to ensure single container per user
+        logger.info(f"🧹 Cleaning up any existing containers for user {user_id}")
         existing_sessions = await db_service.get_user_terminal_sessions(user_id, active_only=True)
+        
         if existing_sessions:
-            logger.warning(f"⚠️  User {user_id} already has {len(existing_sessions)} active container(s)")
+            logger.info(f"⚠️  Found {len(existing_sessions)} existing active container(s) - cleaning up...")
             for session in existing_sessions:
-                logger.info(f"   Active container: {session.container_id} (status: {session.status})")
-            raise ValueError(f"User {user_id} already has an active container. Please terminate existing containers first.")
+                try:
+                    logger.info(f"   Terminating existing container: {session.container_id}")
+                    await self.terminate_container(session.id)
+                except Exception as e:
+                    logger.warning(f"   Failed to cleanup container {session.id}: {e}")
+                    # Continue anyway - we'll create a new one
         
         container_id = f"pyexec-{user_id[:8]}-{uuid.uuid4().hex[:8]}"
         logger.info(f"🐳 Creating Docker container with ID: {container_id}")
@@ -140,7 +146,7 @@ class ContainerService:
             )
             logger.info(f"✅ Database session created: {session.id}")
             
-            # Create Docker container
+            # Create Docker container with Python execution environment
             logger.info(f"🏗️  Starting Docker container creation...")
             container = self.docker.run(
                 image=settings.CONTAINER_IMAGE,
@@ -155,6 +161,7 @@ class ContainerService:
                 envs={
                     "PYTHONUNBUFFERED": "1",
                     "TERM": "xterm-256color",
+                    "PYTHONPATH": "/workspace",
                     **(initial_files or {})
                 },
                 workdir="/workspace",
@@ -162,13 +169,25 @@ class ContainerService:
                 memory=settings.CONTAINER_MEMORY_LIMIT,
                 cpus=settings.CONTAINER_CPU_LIMIT,
                 networks="none",  # Start with no network access
-                command=["/bin/bash"]
+                command=["/bin/bash", "--login"]  # Start with login shell for better Python environment
             )
             
             logger.info(f"🎉 Docker container created successfully!")
             logger.info(f"   Container ID: {container.id}")
             logger.info(f"   Container Name: {container.name}")
             logger.info(f"   Status: {container.state.status}")
+            
+            # Setup initial Python environment in container
+            logger.info("🐍 Setting up Python environment...")
+            try:
+                # Create a simple Python test file and ensure Python is working
+                container.execute([
+                    "sh", "-c", 
+                    "echo 'print(\"Python environment ready!\")' > /workspace/test.py && python3 /workspace/test.py"
+                ])
+                logger.info("✅ Python environment verified")
+            except Exception as e:
+                logger.warning(f"Python environment setup warning: {e}")
             
             # Update database with running status
             logger.info("📝 Updating database session to RUNNING status...")
@@ -252,10 +271,11 @@ class ContainerService:
             return None
     
     async def list_user_containers(self, user_id: str) -> List[TerminalSession]:
-        """List all containers for a user"""
+        """List all active containers for a user"""
         try:
-            # Get sessions from database
-            sessions = await db_service.get_user_terminal_sessions(user_id)
+            # Get only active sessions from database
+            sessions = await db_service.get_user_terminal_sessions(user_id, active_only=True)
+            logger.info(f"Found {len(sessions)} active containers for user {user_id}")
             return sessions
         except Exception as e:
             logger.error(f"Failed to list user containers: {e}")

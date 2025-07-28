@@ -4,7 +4,7 @@ Provides CRUD operations for all models
 """
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlmodel import Session, select, and_, or_
 from sqlalchemy.exc import IntegrityError
 
@@ -231,6 +231,12 @@ class DatabaseService:
         with get_db_session() as session:
             return session.get(TerminalSession, session_id)
     
+    async def get_all_terminal_sessions(self) -> List[TerminalSession]:
+        """Get all terminal sessions"""
+        with get_db_session() as session:
+            result = session.exec(select(TerminalSession))
+            return result.all()
+            
     async def get_terminal_session_by_container(self, container_id: str) -> Optional[TerminalSession]:
         """Get a terminal session by container ID"""
         with get_db_session() as session:
@@ -280,6 +286,32 @@ class DatabaseService:
             session.add(terminal_session)
             session.commit()
             return True
+
+    async def cleanup_old_sessions(self, days_old: int = 7) -> int:
+        """Clean up old terminated sessions older than specified days"""
+        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+        
+        with get_db_session() as session:
+            # Find old terminated sessions
+            statement = select(TerminalSession).where(
+                and_(
+                    or_(
+                        TerminalSession.status == ContainerStatus.TERMINATED.value,
+                        TerminalSession.status == 'error'
+                    ),
+                    TerminalSession.terminated_at < cutoff_date
+                )
+            )
+            
+            old_sessions = session.exec(statement).all()
+            count = len(old_sessions)
+            
+            # Delete them
+            for old_session in old_sessions:
+                session.delete(old_session)
+            
+            session.commit()
+            return count
     
     # Terminal command operations
     async def create_terminal_command(self, session_id: str, command: str,

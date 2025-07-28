@@ -3,11 +3,13 @@ import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { useEditorStore } from '../../stores/editorStore';
 import { useAppStore } from '../../stores/appStore';
+import { useTerminalStore } from '../../stores/terminalStore';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { validatePythonSyntax } from '../../lib/utils';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
-import { Save, Settings, FileText } from 'lucide-react';
+import { Save, Settings, FileText, Play, Square } from 'lucide-react';
 
 interface MonacoEditorProps {
   className?: string;
@@ -17,6 +19,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [isEditorReady, setIsEditorReady] = useState(false);
   const [isMonacoLoaded, setIsMonacoLoaded] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
   
   const {
     content,
@@ -31,8 +34,65 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     markSaved
   } = useEditorStore();
 
-  const { currentFile, setError } = useAppStore();
+  const { currentContainer, currentFile, setError } = useAppStore();
+  const { isConnected } = useTerminalStore();
+  const { sendCommand } = useWebSocket();
   const { manualSave, hasUnsavedChanges } = useAutoSave();
+
+  // Execute the current code in the terminal
+  const executeCode = useCallback(async () => {
+    if (!currentContainer) {
+      setError('No active container. Please wait for container to be ready.');
+      return;
+    }
+
+    if (!isConnected) {
+      setError('Terminal not connected. Please wait for connection.');
+      return;
+    }
+
+    if (!content.trim()) {
+      setError('No code to execute.');
+      return;
+    }
+
+    setIsExecuting(true);
+    setError(null);
+
+    try {
+      // Save the code to a temporary file and execute it
+      const timestamp = Date.now();
+      const filename = `script_${timestamp}.py`;
+      
+      // Clear terminal and show execution start
+      sendCommand('\x0c'); // Clear screen
+      sendCommand(`echo "🚀 Executing Python code..."\n`);
+      
+      // Create the Python file with the current code
+      const escapedContent = content.replace(/'/g, "'\"'\"'");
+      sendCommand(`cat > /workspace/${filename} << 'EOF'\n${content}\nEOF\n`);
+      
+      // Execute the Python file
+      sendCommand(`python3 /workspace/${filename}\n`);
+      
+      // Show completion message
+      sendCommand(`echo "\n✅ Execution completed."\n`);
+      
+    } catch (error) {
+      console.error('Code execution error:', error);
+      setError('Failed to execute code. Please try again.');
+    } finally {
+      setIsExecuting(false);
+    }
+  }, [content, currentContainer, isConnected, sendCommand, setError]);
+
+  // Stop code execution (send interrupt signal)
+  const stopExecution = useCallback(() => {
+    if (isConnected) {
+      sendCommand('\x03'); // Send Ctrl+C to interrupt
+      setIsExecuting(false);
+    }
+  }, [isConnected, sendCommand]);
 
   const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: any) => {
     try {
@@ -71,10 +131,10 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
             }
           });
 
-          // Add Python-specific configurations
+          // Execute code shortcut (Ctrl+Enter)
           if (language === 'python') {
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
-              console.log('Execute code shortcut pressed');
+              executeCode();
             });
           }
         } else {
@@ -96,7 +156,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
       console.error('Monaco editor mount error:', error);
       setError('Failed to initialize code editor');
     }
-  }, [fontSize, wordWrap, minimap, language, manualSave, setError]);
+  }, [fontSize, wordWrap, minimap, language, manualSave, setError, executeCode]);
 
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (!isEditorReady) return;
@@ -180,6 +240,27 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
           >
             <Save className="h-4 w-4" />
             <span className="ml-1 text-xs">Save</span>
+          </Button>
+          
+          {/* Execute/Run Button */}
+          <Button
+            variant={isExecuting ? "destructive" : "default"}
+            size="sm"
+            onClick={isExecuting ? stopExecution : executeCode}
+            disabled={!isEditorReady || !currentContainer || !isConnected}
+            className="h-8 px-2"
+          >
+            {isExecuting ? (
+              <>
+                <Square className="h-4 w-4" />
+                <span className="ml-1 text-xs">Stop</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4" />
+                <span className="ml-1 text-xs">Run</span>
+              </>
+            )}
           </Button>
           
           <Button

@@ -105,13 +105,6 @@ export const containerApi = {
     })
   },
 
-  async createWithCleanup(): Promise<ApiResponse<ContainerResponse>> {
-    return apiRequest<ContainerResponse>('/containers/create?replace_existing=true', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    })
-  },
-
   async list(): Promise<ApiResponse<ContainerResponse[]>> {
     return apiRequest<ContainerResponse[]>('/containers/')
   },

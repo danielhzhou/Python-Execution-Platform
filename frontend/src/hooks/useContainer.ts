@@ -16,6 +16,7 @@ export function useContainer() {
     setCurrentContainer,
     addContainer,
     updateContainer,
+    setContainers,
     setLoading,
     setError
   } = useAppStore();
@@ -45,8 +46,8 @@ export function useContainer() {
     try {
       console.log('🚀 Starting container creation...');
       
-      // Use the new createWithCleanup method for better handling of existing containers
-      const response = await containerApi.createWithCleanup();
+      // Use the simplified create method - backend handles cleanup automatically
+      const response = await containerApi.create();
       
       if (response.success && response.data) {
         // The backend returns ContainerResponse structure
@@ -78,11 +79,6 @@ export function useContainer() {
             errorMessage = response.error;
           } else if (typeof response.error === 'object') {
             errorMessage = response.error.error || response.error.message || errorMessage;
-            
-            // Handle specific error cases
-            if (errorMessage.includes('already has an active container')) {
-              errorMessage = 'You have an active container. Please wait while we clean it up and retry...';
-            }
           }
         }
         
@@ -241,7 +237,7 @@ export function useContainer() {
       const cached = containerCache.get(cacheKey);
       if (cached && (now - cached.timestamp) < CACHE_DURATION) {
         console.log('📦 Using cached container data');
-        cached.data.forEach(container => addContainer(container));
+        setContainers(cached.data);
         
         // Set current container if none selected
         if (cached.data.length > 0 && !currentContainer) {
@@ -285,9 +281,7 @@ export function useContainer() {
         // Update cache
         containerCache.set(cacheKey, { data: containers, timestamp: now });
         
-        containers.forEach(container => {
-          addContainer(container);
-        });
+        setContainers(containers);
 
         // If we have containers but no current container, set the first running one
         if (containers.length > 0 && !currentContainer) {
@@ -321,18 +315,42 @@ export function useContainer() {
     setContainerId(container.id);
   }, [setCurrentContainer, setContainerId]);
 
-  // Load existing containers when user authenticates (but don't auto-create)
+  // Load existing containers when user authenticates and auto-create if none exist
   // Only run once when authenticated and not yet initialized
   useEffect(() => {
     if (isAuthenticated && !isInitialized) {
       console.log('🔑 User authenticated, loading existing containers...');
-      loadContainers();
+      
+      const initializeUserContainer = async () => {
+        try {
+          // First, load existing containers
+          await loadContainers();
+          
+          // Check if user has any running containers after loading
+          const response = await containerApi.list();
+          if (response.success && response.data) {
+            const runningContainers = response.data.filter(c => c.status === 'running');
+            
+            if (runningContainers.length === 0) {
+              console.log('📦 No running containers found, creating one...');
+              await createContainer();
+            } else {
+              console.log(`✅ Found ${runningContainers.length} running container(s)`);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error initializing user container:', error);
+          // Don't set error here as it might be temporary
+        }
+      };
+      
+      initializeUserContainer();
       setIsInitialized(true);
     } else if (!isAuthenticated && isInitialized) {
       // Reset initialization state when user logs out
       setIsInitialized(false);
     }
-  }, [isAuthenticated, isInitialized]);
+  }, [isAuthenticated, isInitialized, loadContainers, createContainer]);
 
   return {
     currentContainer,

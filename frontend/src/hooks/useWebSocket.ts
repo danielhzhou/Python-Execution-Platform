@@ -6,12 +6,19 @@ import type { WebSocketMessage } from '../types';
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocketManager | null>(null);
+  const terminalRef = useRef<any>(null); // Reference to xterm terminal instance
+  
   const {
     setConnected,
     addOutput,
     containerId
   } = useTerminalStore();
   const { setError } = useAppStore();
+
+  // Method to set terminal reference from Terminal component
+  const setTerminalRef = useCallback((terminal: any) => {
+    terminalRef.current = terminal;
+  }, []);
 
   const connect = useCallback(async () => {
     if (!containerId) {
@@ -33,16 +40,33 @@ export function useWebSocket() {
         setConnected(false);
       });
 
-      // Handle terminal output from backend
-      wsRef.current.on('output', (message: WebSocketMessage) => {
-        if (message.type === 'output' && message.data?.content) {
-          addOutput(message.data.content);
+      // Handle terminal output from backend - write directly to xterm
+      wsRef.current.on('terminal_output', (message: WebSocketMessage) => {
+        if (message.type === 'terminal_output' && message.data) {
+          // Write directly to xterm terminal if available
+          if (terminalRef.current) {
+            try {
+              terminalRef.current.write(message.data);
+            } catch (error) {
+              console.error('Error writing to terminal:', error);
+            }
+          }
+          // Also add to store for debugging
+          addOutput(message.data);
         }
       });
 
-      wsRef.current.on('terminal_output', (message: WebSocketMessage) => {
-        if (message.type === 'terminal_output') {
-          addOutput(message.data);
+      // Handle other output types
+      wsRef.current.on('output', (message: WebSocketMessage) => {
+        if (message.type === 'output' && message.data?.content) {
+          if (terminalRef.current) {
+            try {
+              terminalRef.current.write(message.data.content);
+            } catch (error) {
+              console.error('Error writing to terminal:', error);
+            }
+          }
+          addOutput(message.data.content);
         }
       });
 
@@ -50,13 +74,10 @@ export function useWebSocket() {
       wsRef.current.on('connected', (message: WebSocketMessage) => {
         if (message.type === 'connected') {
           console.log('Terminal connection confirmed:', message.data?.message);
-        }
-      });
-
-      // Handle terminal resize confirmation
-      wsRef.current.on('resized', (message: WebSocketMessage) => {
-        if (message.type === 'resized') {
-          console.log('Terminal resized:', message.data);
+          if (terminalRef.current) {
+            terminalRef.current.writeln(`\r\n\x1b[32m✅ Connected to container\x1b[0m`);
+            terminalRef.current.write('\x1b[1;32m$ \x1b[0m');
+          }
         }
       });
 
@@ -106,6 +127,7 @@ export function useWebSocket() {
     connect,
     disconnect,
     sendCommand,
+    setTerminalRef,
     isConnected: wsRef.current?.isConnected || false
   };
 } 
