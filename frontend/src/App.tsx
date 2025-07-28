@@ -90,7 +90,7 @@ function App() {
   return (
     <ToastProvider>
       <ErrorBoundary>
-        <div className="min-h-screen bg-background">
+        <div className="h-screen bg-background overflow-hidden">
           {/* Global Error Display */}
           {error && (
             <div className="bg-destructive/10 border-l-4 border-destructive p-4 mb-4">
@@ -105,24 +105,24 @@ function App() {
           )}
 
           {/* Header */}
-          <Header className="border-b" />
+          <Header className="border-b flex-shrink-0" />
           
           {/* Main Layout */}
-          <div className="flex h-[calc(100vh-4rem)]">
+          <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
             {/* Sidebar */}
             <Sidebar />
             
-            {/* Main Content */}
-            <div className="flex-1 flex">
-              {/* Code Editor */}
-              <div className="flex-1 border-r">
+            {/* Main Content - Vertical Split */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Code Editor - Top Half */}
+              <div className="flex-1 border-b overflow-hidden">
                 <MonacoErrorBoundary>
                   <MonacoEditor />
                 </MonacoErrorBoundary>
               </div>
               
-              {/* Terminal */}
-              <div className="flex-1">
+              {/* Terminal - Bottom Half */}
+              <div className="flex-1 overflow-hidden">
                 <TerminalErrorBoundary>
                   <Terminal />
                 </TerminalErrorBoundary>

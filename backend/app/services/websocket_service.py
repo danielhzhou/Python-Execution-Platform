@@ -39,26 +39,40 @@ class WebSocketManager:
         self.session_connections: Dict[str, Set[WebSocket]] = {}
         
     async def connect(self, websocket: WebSocket, session_id: str):
-        """Accept a WebSocket connection for a terminal session"""
-        await websocket.accept()
-        
-        # Store the connection
-        self.active_connections[id(websocket)] = websocket
-        
-        if session_id not in self.session_connections:
-            self.session_connections[session_id] = set()
-        self.session_connections[session_id].add(websocket)
-        
-        logger.info(f"WebSocket connected for session {session_id}")
-        
-        # Send welcome message
-        await self._send_to_websocket(websocket, {
-            "type": "connected",
-            "data": {
-                "session_id": session_id,
-                "message": "Terminal connected successfully"
-            }
-        })
+        """Handle WebSocket connection"""
+        try:
+            # Accept the WebSocket connection first
+            await websocket.accept()
+            logger.info(f"🔌 WebSocket accepted for session {session_id}")
+            
+            # Store connection
+            ws_id = id(websocket)
+            self.active_connections[ws_id] = websocket
+            
+            # Add to session connections
+            if session_id not in self.session_connections:
+                self.session_connections[session_id] = set()
+            self.session_connections[session_id].add(websocket)
+            
+            logger.info(f"WebSocket connected for session {session_id}")
+            
+            # Send welcome message with error handling
+            try:
+                await self._send_to_websocket(websocket, {
+                    "type": "connected",
+                    "data": {
+                        "session_id": session_id,
+                        "message": "Terminal connected successfully"
+                    }
+                })
+                logger.info(f"✅ Welcome message sent successfully for session {session_id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to send welcome message for session {session_id}: {e}")
+                raise
+                
+        except Exception as e:
+            logger.error(f"❌ Error in WebSocket connect: {e}", exc_info=True)
+            raise
         
     async def disconnect(self, websocket: WebSocket, session_id: str):
         """Handle WebSocket disconnection"""
@@ -116,13 +130,18 @@ class WebSocketManager:
             
     async def start_terminal_output_stream(self, session_id: str):
         """Start streaming terminal output to connected WebSockets"""
+        logger.info(f"🔄 Starting output stream for session {session_id}")
+        
         output_stream = await terminal_service.get_output_stream(session_id)
         if not output_stream:
-            logger.error(f"No output stream available for session {session_id}")
+            logger.error(f"❌ No output stream available for session {session_id}")
             return
             
+        logger.info(f"✅ Output stream obtained for session {session_id}")
+        
         try:
             async for output in output_stream:
+                logger.info(f"📤 Streaming output for {session_id}: {repr(output.data[:100])}")  # Log first 100 chars
                 # Send output to all connected WebSockets for this session
                 # Use 'terminal_output' type to match frontend expectations
                 await self._broadcast_to_session(session_id, {
@@ -131,7 +150,7 @@ class WebSocketManager:
                 })
                 
         except Exception as e:
-            logger.error(f"Error in terminal output stream: {e}")
+            logger.error(f"❌ Error in terminal output stream for {session_id}: {e}")
             await self._broadcast_to_session(session_id, {
                 "type": "error",
                 "data": {"message": "Terminal output stream error"}

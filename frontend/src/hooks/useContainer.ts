@@ -21,7 +21,7 @@ export function useContainer() {
     setError
   } = useAppStore();
 
-  const { setContainerId } = useTerminalStore();
+  const { setContainerId, containerId: terminalContainerId, reset: resetTerminal } = useTerminalStore();
   const isCreatingRef = useRef(false);
   const lastLoadTime = useRef(0);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -45,6 +45,11 @@ export function useContainer() {
 
     try {
       console.log('🚀 Starting container creation...');
+      console.log('🔍 Current terminal container ID:', terminalContainerId);
+      
+      // Reset terminal state before creating new container
+      resetTerminal();
+      console.log('🧹 Terminal state reset');
       
       // Use the simplified create method - backend handles cleanup automatically
       const response = await containerApi.create();
@@ -62,9 +67,13 @@ export function useContainer() {
         };
         
         console.log('✅ Container created successfully:', container.id);
+        console.log('🔧 Setting terminal container ID to:', container.id);
+        
         addContainer(container);
         setCurrentContainer(container);
         setContainerId(container.id);
+        
+        console.log('✅ Terminal container ID updated');
         
         // Invalidate cache
         containerCache.clear();
@@ -95,7 +104,7 @@ export function useContainer() {
       isCreatingRef.current = false;
       setLoading(false);
     }
-  }, [isAuthenticated, addContainer, setCurrentContainer, setContainerId, setLoading, setError]);
+  }, [isAuthenticated, addContainer, setCurrentContainer, setContainerId, setLoading, setError, terminalContainerId, resetTerminal]);
 
   const cleanupContainers = useCallback(async () => {
     if (!isAuthenticated) {
