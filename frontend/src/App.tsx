@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Header } from './components/layout/Header';
-import { Sidebar } from './components/layout/Sidebar';
 
 import { MonacoEditor } from './components/editor/MonacoEditor';
 import { Terminal } from './components/terminal/Terminal';
@@ -109,9 +108,6 @@ function App() {
           
           {/* Main Layout */}
           <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-            {/* Sidebar */}
-            <Sidebar />
-            
             {/* Main Content - Vertical Split */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Code Editor - Top Half */}

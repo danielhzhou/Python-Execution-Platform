@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { FitAddon } from 'xterm-addon-fit';
@@ -6,8 +6,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useAppStore } from '../../stores/appStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { Card } from '../ui/card';
-import { Button } from '../ui/button';
-import { Terminal as TerminalIcon, Trash2, Settings, Wifi, WifiOff } from 'lucide-react';
+import { Terminal as TerminalIcon, Wifi, WifiOff } from 'lucide-react';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -24,8 +23,7 @@ export function Terminal({ className }: TerminalProps) {
     isConnected,
     theme,
     fontSize,
-    fontFamily,
-    clearOutput
+    fontFamily
   } = useTerminalStore();
 
   const { currentContainer, loading } = useAppStore();
@@ -37,7 +35,7 @@ export function Terminal({ className }: TerminalProps) {
     containerExists: !!currentContainer,
     isConnected
   });
-  const { connect, disconnect, sendCommand: wsSendCommand, setTerminalRef } = useWebSocket();
+  const { connect, sendCommand: wsSendCommand, setTerminalRef } = useWebSocket();
 
   // Show loading state when container is being created or terminal is connecting
   const isLoading = loading || (currentContainer && !isConnected && isTerminalInitialized);
@@ -111,17 +109,37 @@ export function Terminal({ className }: TerminalProps) {
           
           terminal.open(terminalRef.current);
           
-          // Fit terminal to container size
-          setTimeout(() => {
-            if (fitAddonRef.current && terminal) {
+          // Fit terminal to container size with multiple attempts
+          const fitTerminal = () => {
+            if (fitAddonRef.current && terminal && terminalRef.current) {
               try {
-                fitAddonRef.current.fit();
-                console.log('📏 Terminal fitted to container');
+                // Ensure the container has proper dimensions
+                const container = terminalRef.current;
+                if (container.clientWidth > 0 && container.clientHeight > 0) {
+                  fitAddonRef.current.fit();
+                  console.log('📏 Terminal fitted to container:', {
+                    width: container.clientWidth,
+                    height: container.clientHeight,
+                    cols: terminal.cols,
+                    rows: terminal.rows
+                  });
+                  
+                  // Scroll to bottom to ensure prompt is visible
+                  terminal.scrollToBottom();
+                } else {
+                  console.warn('Container not ready for fitting, retrying...');
+                  setTimeout(fitTerminal, 50);
+                }
               } catch (error) {
                 console.warn('FitAddon error:', error);
               }
             }
-          }, 100);
+          };
+          
+          // Try fitting multiple times to ensure it works
+          setTimeout(fitTerminal, 50);
+          setTimeout(fitTerminal, 200);
+          setTimeout(fitTerminal, 500);
           
           xtermRef.current = terminal;
           
@@ -150,6 +168,18 @@ export function Terminal({ className }: TerminalProps) {
             try {
               console.log('🎹 Terminal input:', data, 'Store Connected:', isConnected);
               
+              // Handle Ctrl+L to clear terminal (traditional shell behavior)
+              if (data === '\f' || data === '\x0c') { // Ctrl+L
+                if (terminal) {
+                  terminal.clear();
+                  terminal.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
+                  terminal.writeln('\x1b[1;32m│ Terminal cleared (Ctrl+L)              │\x1b[0m');
+                  terminal.writeln('\x1b[1;32m╰───────────────────────────────────────╯\x1b[0m');
+                  terminal.writeln('');
+                }
+                return;
+              }
+              
               // Always try to send to WebSocket if we have a current container
               // The WebSocket service will handle connection state
               if (currentContainer && wsSendCommand) {
@@ -162,6 +192,13 @@ export function Terminal({ className }: TerminalProps) {
                   terminal.write('\r\n\x1b[31m❌ No container available\x1b[0m\r\n');
                 }
               }
+              
+              // Ensure terminal stays at bottom after input
+              setTimeout(() => {
+                if (terminal) {
+                  terminal.scrollToBottom();
+                }
+              }, 10);
             } catch (error) {
               console.error('Terminal input error:', error);
             }
@@ -212,10 +249,16 @@ export function Terminal({ className }: TerminalProps) {
   // Handle window resize to fit terminal
   useEffect(() => {
     const handleResize = () => {
-      if (fitAddonRef.current && xtermRef.current) {
+      if (fitAddonRef.current && xtermRef.current && terminalRef.current) {
         try {
-          fitAddonRef.current.fit();
-          console.log('🔄 Terminal resized');
+          // Add a small delay to ensure layout has stabilized
+          setTimeout(() => {
+            if (fitAddonRef.current && xtermRef.current) {
+              fitAddonRef.current.fit();
+              xtermRef.current.scrollToBottom();
+              console.log('🔄 Terminal resized and scrolled to bottom');
+            }
+          }, 100);
         } catch (error) {
           console.warn('Terminal resize error:', error);
         }
@@ -226,82 +269,53 @@ export function Terminal({ className }: TerminalProps) {
     return () => window.removeEventListener('resize', handleResize);
   }, [isTerminalInitialized]);
 
-  // Handle WebSocket messages (terminal output)
+  // Handle WebSocket messages (terminal output) and ensure visibility
   useEffect(() => {
     if (xtermRef.current && isConnected) {
       // This would be handled by the WebSocket hook
-      // For now, we'll simulate receiving output
+      // Ensure terminal stays scrolled to bottom for new content
+      const terminal = xtermRef.current;
+      
+      // Add a mutation observer to detect when content is added
+      const observer = new MutationObserver(() => {
+        if (terminal) {
+          terminal.scrollToBottom();
+        }
+      });
+      
+      // Observe the terminal element for changes
+      if (terminalRef.current) {
+        observer.observe(terminalRef.current, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      }
+      
+      return () => observer.disconnect();
     }
-  }, [isConnected]);
+  }, [isConnected, isTerminalInitialized]);
 
-  const handleClearTerminal = useCallback(() => {
-    if (xtermRef.current) {
-      xtermRef.current.clear();
-      xtermRef.current.writeln('\x1b[1;32m╭─ Python Execution Platform Terminal ─╮\x1b[0m');
-      xtermRef.current.writeln('\x1b[1;32m│ Terminal cleared                       │\x1b[0m');
-      xtermRef.current.writeln('\x1b[1;32m╰───────────────────────────────────────╯\x1b[0m');
-      xtermRef.current.writeln('');
-      xtermRef.current.write('\x1b[1;32m$ \x1b[0m');
-    }
-    clearOutput();
-  }, [clearOutput]);
 
-  const handleReconnect = useCallback(() => {
-    if (!isConnected) {
-      connect();
-    } else {
-      disconnect();
-    }
-  }, [isConnected, connect, disconnect]);
 
   return (
     <Card className={`flex flex-col h-full w-full ${className}`}>
-      {/* Terminal Header */}
-      <div className="flex items-center justify-between p-3 border-b flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <TerminalIcon className="h-4 w-4" />
-          <span className="font-medium">Terminal</span>
-          <div className="flex items-center gap-1 ml-2">
-            {isConnected ? (
-              <>
-                <Wifi className="h-3 w-3 text-green-500" />
-                <span className="text-xs text-green-600">Connected</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="h-3 w-3 text-red-500" />
-                <span className="text-xs text-red-600">Disconnected</span>
-              </>
-            )}
-          </div>
-        </div>
-        
+      {/* Terminal Header - Simplified */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b flex-shrink-0 bg-muted/30">
+        <TerminalIcon className="h-4 w-4" />
+        <span className="font-medium">Terminal</span>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {/* disconnect logic */}}
-            className="h-7 px-2"
-          >
-            <WifiOff className="h-3 w-3" />
-            <span className="ml-1 text-xs">Disconnect</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClearTerminal}
-            className="h-7 px-2"
-          >
-            <Trash2 className="h-3 w-3" />
-            <span className="ml-1 text-xs">Clear</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2"
-          >
-            <Settings className="h-3 w-3" />
-          </Button>
+          {isConnected ? (
+            <>
+              <Wifi className="h-3 w-3 text-green-500" />
+              <span className="text-xs text-green-600">Connected</span>
+            </>
+          ) : (
+            <>
+              <WifiOff className="h-3 w-3 text-red-500" />
+              <span className="text-xs text-red-600">Disconnected</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -332,8 +346,7 @@ export function Terminal({ className }: TerminalProps) {
             cursor: 'text',
             position: 'relative',
             zIndex: 1,
-            overflow: 'auto',
-            minHeight: '400px'
+            overflow: 'hidden'
           }}
           onClick={() => {
             // Focus the terminal when clicked
@@ -343,22 +356,6 @@ export function Terminal({ className }: TerminalProps) {
             }
           }}
         />
-      </div>
-
-      {/* Terminal Footer */}
-      <div className="flex items-center justify-between p-2 border-t bg-muted/30 text-xs text-muted-foreground flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <span>Shell: bash</span>
-          <span>Encoding: UTF-8</span>
-          {currentContainer && (
-            <span>Container: {currentContainer.id.substring(0, 8)}</span>
-          )}
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <span>Connected: {isConnected ? 'Yes' : 'No'}</span>
-          <span>Font: {fontSize}px</span>
-        </div>
       </div>
     </Card>
   );

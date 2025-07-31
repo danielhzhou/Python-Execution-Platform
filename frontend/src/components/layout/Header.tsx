@@ -26,7 +26,6 @@ export function Header({ className }: HeaderProps) {
   const { 
     user, 
     currentContainer, 
-    toggleSidebar,
     isLoading,
     error 
   } = useAppStore();
@@ -58,15 +57,6 @@ export function Header({ className }: HeaderProps) {
     )}>
       {/* Left Section */}
       <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleSidebar}
-          className="p-2"
-        >
-          <Menu className="h-4 w-4" />
-        </Button>
-        
         <div className="flex items-center gap-2">
           <Code className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">

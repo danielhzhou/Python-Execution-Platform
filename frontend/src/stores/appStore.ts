@@ -18,7 +18,6 @@ interface AppState {
   // UI state
   loading: boolean;
   error: string | null;
-  sidebarOpen: boolean;
   
   // Actions
   setUser: (user: User | null) => void;
@@ -37,8 +36,6 @@ interface AppState {
   
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
-  toggleSidebar: () => void;
-  setSidebarOpen: (open: boolean) => void;
   
   isLoading: boolean;
 }
@@ -53,7 +50,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentFile: null,
   loading: false,
   error: null,
-  sidebarOpen: true,
   
   get isLoading() { return get().loading; },
 
@@ -162,6 +158,4 @@ export const useAppStore = create<AppState>((set, get) => ({
   // UI actions
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
-  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 }));   
