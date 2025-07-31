@@ -7,23 +7,23 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { validatePythonSyntax } from '../../lib/utils';
-import { Button } from '../ui/button';
-import { Save, FileText, Play, Square } from 'lucide-react';
+
 
 interface MonacoEditorProps {
   className?: string;
+  executeCodeRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
-export function MonacoEditor({ className }: MonacoEditorProps) {
+export function MonacoEditor({ className, executeCodeRef }: MonacoEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [isEditorReady, setIsEditorReady] = useState(false);
   const [, setIsMonacoLoaded] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [, setIsExecuting] = useState(false);
   
   const {
     content,
     language,
-    isDirty,
+
     theme,
     fontSize,
     wordWrap,
@@ -34,7 +34,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
   const { currentContainer, currentFile, setError } = useAppStore();
   const { isConnected } = useTerminalStore();
   const { sendCommand } = useWebSocket();
-  const { manualSave, hasUnsavedChanges } = useAutoSave();
+  const { manualSave } = useAutoSave();
 
   // Execute the current code in the terminal
   const executeCode = useCallback(async () => {
@@ -124,13 +124,14 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     }
   }, [content, currentContainer, currentFile, isConnected, sendCommand, setError, manualSave]);
 
-  // Stop code execution (send interrupt signal)
-  const stopExecution = useCallback(() => {
-    if (isConnected) {
-      sendCommand('\x03'); // Send Ctrl+C to interrupt
-      setIsExecuting(false);
+  // Expose executeCode function through ref
+  useEffect(() => {
+    if (executeCodeRef) {
+      executeCodeRef.current = executeCode;
     }
-  }, [isConnected, sendCommand]);
+  }, [executeCode, executeCodeRef]);
+
+
 
   const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor, _monaco: any) => {
     try {
@@ -221,14 +222,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     }
   }, [content, language, setContent, isEditorReady]);
 
-  const handleSaveClick = useCallback(async () => {
-    try {
-      await manualSave();
-    } catch (error) {
-      console.error('Save click error:', error);
-      setError('Failed to save file');
-    }
-  }, [manualSave, setError]);
+
 
   // Update editor options when store changes
   useEffect(() => {
@@ -245,79 +239,12 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     }
   }, [fontSize, wordWrap, minimap, isEditorReady]);
 
-  const getStatusText = () => {
-    if (!currentFile) return 'No file selected';
-    if (hasUnsavedChanges) return 'Unsaved changes';
-    if (isDirty) return 'Modified';
-    return 'Saved';
-  };
 
-  const getStatusColor = () => {
-    if (!currentFile) return 'bg-gray-100 text-gray-600';
-    if (hasUnsavedChanges) return 'bg-amber-100 text-amber-800';
-    if (isDirty) return 'bg-blue-100 text-blue-800';
-    return 'bg-emerald-100 text-emerald-800';
-  };
 
   return (
-    <div className={`flex flex-col h-full bg-background ${className}`}>
-      {/* Editor Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 bg-muted/10">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold">
-              {currentFile?.name || 'main.py'}
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusColor()}`}>
-              {getStatusText()}
-            </span>
-            {hasUnsavedChanges && (
-              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Unsaved changes" />
-            )}
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleSaveClick}
-            disabled={!hasUnsavedChanges || !isEditorReady}
-            className="h-8 px-3 text-xs"
-          >
-            <Save className="h-3.5 w-3.5 mr-1.5" />
-            Save
-          </Button>
-          
-          {/* Execute/Run Button */}
-          <Button
-            variant={isExecuting ? "destructive" : "default"}
-            size="sm"
-            onClick={isExecuting ? stopExecution : executeCode}
-            disabled={!isEditorReady || !currentContainer || !isConnected}
-            className="h-8 px-3 text-xs font-medium"
-          >
-            {isExecuting ? (
-              <>
-                <Square className="h-3.5 w-3.5 mr-1.5" />
-                Stop
-              </>
-            ) : (
-              <>
-                <Play className="h-3.5 w-3.5 mr-1.5" />
-                Run
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {/* Monaco Editor */}
-      <div className="flex-1 min-h-0 bg-background">
+    <div className={`flex flex-col h-full bg-[#1e1e1e] ${className}`}>
+      {/* Monaco Editor - Full Height */}
+      <div className="flex-1 min-h-0">
         <Editor
           height="100%"
           language={language}
@@ -386,24 +313,6 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
             }
           }}
         />
-      </div>
-
-      {/* Editor Footer */}
-      <div className="flex items-center justify-between p-2 border-t bg-muted/30 text-xs text-muted-foreground">
-        <div className="flex items-center gap-4">
-          <span>Python</span>
-          <span>UTF-8</span>
-          <span>LF</span>
-          {!isEditorReady && <span className="text-yellow-500">Loading...</span>}
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <span>Lines: {content.split('\n').length}</span>
-          <span>Characters: {content.length}</span>
-          {currentFile && (
-            <span>Size: {Math.round(content.length / 1024 * 100) / 100} KB</span>
-          )}
-        </div>
       </div>
     </div>
   );

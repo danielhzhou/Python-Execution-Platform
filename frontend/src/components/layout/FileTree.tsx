@@ -260,19 +260,19 @@ export function FileTree({ className }: { className?: string }) {
     }
   }, [currentContainer?.id, currentContainer?.status, fetchContainerFiles]);
 
-  // Render file tree node
+  // Render file tree node - VS Code Style
   const renderFileNode = (node: FileNode, level: number = 0): React.ReactNode => {
     const isSelected = selectedFile === node.path;
     
     return (
       <div key={node.path}>
         <div
-          className={`flex items-center gap-2 py-1.5 px-2 mx-1 rounded-md cursor-pointer transition-colors group ${
+          className={`flex items-center gap-1 py-0.5 cursor-pointer transition-colors group ${
             isSelected 
-              ? 'bg-primary/10 text-primary border border-primary/20' 
-              : 'hover:bg-muted/50 text-foreground'
+              ? 'bg-[#094771] text-white' 
+              : 'hover:bg-white/5 text-white/90'
           }`}
-          style={{ paddingLeft: `${level * 12 + 8}px` }}
+          style={{ paddingLeft: `${level * 16 + 8}px` }}
           onClick={() => {
             if (node.type === 'directory') {
               toggleDirectory(node.path);
@@ -284,14 +284,14 @@ export function FileTree({ className }: { className?: string }) {
           {node.type === 'directory' ? (
             <>
               {node.isExpanded ? (
-                <ChevronDown className="h-3 w-3 text-muted-foreground group-hover:text-foreground" />
+                <ChevronDown className="h-3 w-3 text-white/60" />
               ) : (
-                <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-foreground" />
+                <ChevronRight className="h-3 w-3 text-white/60" />
               )}
               {node.isExpanded ? (
-                <FolderOpen className="h-4 w-4 text-blue-500" />
+                <FolderOpen className="h-4 w-4 text-[#dcb67a]" />
               ) : (
-                <Folder className="h-4 w-4 text-blue-500" />
+                <Folder className="h-4 w-4 text-[#dcb67a]" />
               )}
             </>
           ) : (
@@ -300,12 +300,7 @@ export function FileTree({ className }: { className?: string }) {
               <File className={`h-4 w-4 ${getFileIcon(node.name)}`} />
             </>
           )}
-          <span className="text-sm truncate font-medium">{node.name}</span>
-          {node.size !== undefined && (
-            <span className="text-xs text-muted-foreground ml-auto opacity-60 group-hover:opacity-100">
-              {formatFileSize(node.size)}
-            </span>
-          )}
+          <span className="text-sm truncate select-none">{node.name}</span>
         </div>
         
         {node.type === 'directory' && node.isExpanded && node.children && (
@@ -317,19 +312,21 @@ export function FileTree({ className }: { className?: string }) {
     );
   };
 
-  // Get file icon color based on extension
+  // Get file icon color based on extension - VS Code Style
   const getFileIcon = (fileName: string): string => {
     const extension = fileName.split('.').pop()?.toLowerCase();
     switch (extension) {
-      case 'py': return 'text-yellow-500';
-      case 'js': return 'text-yellow-400';
-      case 'ts': return 'text-blue-400';
-      case 'json': return 'text-green-500';
-      case 'md': return 'text-gray-500';
-      case 'txt': return 'text-gray-400';
+      case 'py': return 'text-[#3776ab]';
+      case 'js': return 'text-[#f7df1e]';
+      case 'ts': return 'text-[#3178c6]';
+      case 'json': return 'text-[#cbcb41]';
+      case 'md': return 'text-white/70';
+      case 'txt': return 'text-white/60';
       case 'yaml':
-      case 'yml': return 'text-red-400';
-      default: return 'text-muted-foreground';
+      case 'yml': return 'text-[#cb171e]';
+      case 'css': return 'text-[#1572b6]';
+      case 'html': return 'text-[#e34f26]';
+      default: return 'text-white/70';
     }
   };
 
@@ -343,79 +340,59 @@ export function FileTree({ className }: { className?: string }) {
   };
 
   return (
-    <div className={`flex flex-col h-full bg-background ${className}`}>
-      {/* File Tree Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-muted/20">
+    <div className={`flex flex-col h-full bg-[#252526] ${className}`}>
+      {/* File Tree Header - VS Code Style */}
+      <div className="flex items-center justify-between px-3 py-2 text-white/90">
         <div className="flex items-center gap-2">
-          <Folder className="h-4 w-4 text-muted-foreground" />
-          <span className="font-semibold text-sm">Explorer</span>
+          <span className="font-medium text-xs uppercase tracking-wider">Explorer</span>
         </div>
         
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
             onClick={createFile}
             disabled={!currentContainer}
-            className="h-7 w-7 p-0 hover:bg-muted/60"
+            className="p-1 hover:bg-white/10 rounded text-white/70 hover:text-white disabled:opacity-50"
             title="New File"
           >
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
+            <Plus className="h-4 w-4" />
+          </button>
+          <button
             onClick={fetchContainerFiles}
             disabled={loading || !currentContainer}
-            className="h-7 w-7 p-0 hover:bg-muted/60"
+            className="p-1 hover:bg-white/10 rounded text-white/70 hover:text-white disabled:opacity-50"
             title="Refresh"
           >
-            <RotateCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+            <RotateCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
       {/* File Tree Content */}
-      <div className="flex-1 overflow-auto min-h-0 px-2">
+      <div className="flex-1 overflow-auto min-h-0">
         {loading ? (
           <div className="flex items-center justify-center h-32">
-            <div className="text-sm text-muted-foreground">Loading files...</div>
+            <div className="text-sm text-white/60">Loading files...</div>
           </div>
         ) : !currentContainer ? (
           <div className="flex items-center justify-center h-32">
-            <div className="text-sm text-muted-foreground">No container available</div>
+            <div className="text-sm text-white/60">No container available</div>
           </div>
         ) : fileTree.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 gap-3">
-            <div className="text-sm text-muted-foreground">No files found</div>
-            <Button
-              variant="outline"
-              size="sm"
+            <div className="text-sm text-white/60">No files found</div>
+            <button
               onClick={createFile}
-              className="h-8 px-3"
+              className="px-3 py-1 bg-[#0e639c] hover:bg-[#1177bb] text-white text-sm rounded"
             >
-              <Plus className="h-3 w-3 mr-2" />
               New File
-            </Button>
+            </button>
           </div>
         ) : (
-          <div className="py-2">
+          <div className="py-1">
             {fileTree.map(node => renderFileNode(node))}
           </div>
         )}
       </div>
-
-      {/* File Tree Footer */}
-      {fileTree.length > 0 && (
-        <div className="flex items-center justify-between px-3 py-2 border-t border-border/50 bg-muted/10 text-xs text-muted-foreground">
-          <span>{fileTree.length} items</span>
-          {selectedFile && (
-            <span className="truncate max-w-32" title={selectedFile}>
-              {selectedFile.split('/').pop()}
-            </span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
