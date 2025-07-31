@@ -177,6 +177,82 @@ class ContainerService:
             logger.info(f"   Container Name: {container.name}")
             logger.info(f"   Status: {container.state.status}")
             
+            # Create initial workspace files
+            logger.info("📝 Creating initial workspace files...")
+            try:
+                # Create a welcome Python file
+                welcome_content = '''# Welcome to Python Execution Platform
+# Start coding here...
+
+def main():
+    print("Hello, World!")
+    print("This is your Python workspace!")
+    
+    # Try some basic Python features
+    numbers = [1, 2, 3, 4, 5]
+    squared = [x**2 for x in numbers]
+    print(f"Original numbers: {numbers}")
+    print(f"Squared numbers: {squared}")
+    
+    # You can install packages using: pip install package-name
+    # Then run your code by clicking the Run button or pressing Ctrl+Enter
+
+if __name__ == "__main__":
+    main()
+'''
+                
+                # Write the welcome file to the container
+                container.execute(
+                    ["bash", "-c", f"cat > /workspace/main.py << 'EOF'\n{welcome_content}\nEOF"]
+                )
+                
+                # Create a requirements.txt file
+                requirements_content = '''# Add your Python package dependencies here
+# For example:
+# numpy==1.24.3
+# pandas==2.0.3
+# matplotlib==3.7.1
+# requests==2.31.0
+
+# Then install them using: pip install -r requirements.txt
+'''
+                
+                container.execute(
+                    ["bash", "-c", f"cat > /workspace/requirements.txt << 'EOF'\n{requirements_content}\nEOF"]
+                )
+                
+                # Create a simple README
+                readme_content = '''# Python Workspace
+
+Welcome to your Python development environment!
+
+## Files in this workspace:
+- `main.py` - Your main Python script (edit and run this)
+- `requirements.txt` - Python package dependencies
+- `README.md` - This file
+
+## How to use:
+1. Edit `main.py` in the code editor
+2. Click the "Run" button to execute your code
+3. Install packages: `pip install package-name`
+4. Use the terminal for any additional commands
+
+Happy coding! 🐍
+'''
+                
+                container.execute(
+                    ["bash", "-c", f"cat > /workspace/README.md << 'EOF'\n{readme_content}\nEOF"]
+                )
+                
+                # Make sure files have correct permissions
+                container.execute(["chown", "-R", "1000:1000", "/workspace"])
+                
+                logger.info("✅ Initial workspace files created successfully")
+                
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to create initial files: {e}")
+                # Don't fail container creation if file creation fails
+            
             # Setup initial Python environment in container
             logger.info("🐍 Setting up Python environment...")
             try:
@@ -439,6 +515,22 @@ class ContainerService:
         except:
             pass
         return None
+    
+    async def get_container_session(self, container_id: str) -> Optional[TerminalSession]:
+        """Get terminal session by container ID"""
+        try:
+            # First try to get session from database by container ID
+            session = await db_service.get_terminal_session_by_container(container_id)
+            if session:
+                return session
+            
+            # If not found by container ID, try by session ID (for backward compatibility)
+            session = await db_service.get_terminal_session(container_id)
+            return session
+            
+        except Exception as e:
+            logger.error(f"Error getting container session for {container_id}: {e}")
+            return None
         
     async def _cleanup_containers(self):
         """Background task to clean up expired containers"""

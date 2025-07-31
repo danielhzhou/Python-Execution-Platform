@@ -33,7 +33,7 @@ interface EditorState {
 }
 
 const initialState = {
-  content: '# Welcome to Python Execution Platform\n# Start coding here...\n\nprint("Hello, World!")\n',
+  content: '',
   language: 'python',
   isDirty: false,
   lastSaved: null,
