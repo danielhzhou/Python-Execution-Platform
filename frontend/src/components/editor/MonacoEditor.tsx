@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { useEditorStore } from '../../stores/editorStore';
@@ -7,9 +7,8 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { validatePythonSyntax } from '../../lib/utils';
-import { Card } from '../ui/card';
 import { Button } from '../ui/button';
-import { Save, Settings, FileText, Play, Square } from 'lucide-react';
+import { Save, FileText, Play, Square } from 'lucide-react';
 
 interface MonacoEditorProps {
   className?: string;
@@ -18,7 +17,7 @@ interface MonacoEditorProps {
 export function MonacoEditor({ className }: MonacoEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [isEditorReady, setIsEditorReady] = useState(false);
-  const [isMonacoLoaded, setIsMonacoLoaded] = useState(false);
+  const [, setIsMonacoLoaded] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   
   const {
@@ -29,9 +28,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     fontSize,
     wordWrap,
     minimap,
-    setContent,
-    setDirty,
-    markSaved
+    setContent
   } = useEditorStore();
 
   const { currentContainer, currentFile, setError } = useAppStore();
@@ -135,7 +132,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     }
   }, [isConnected, sendCommand]);
 
-  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: any) => {
+  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor, _monaco: any) => {
     try {
       editorRef.current = editor;
       setIsMonacoLoaded(true);
@@ -162,9 +159,9 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
       // Add keyboard shortcuts with proper error handling
       try {
         // Ensure KeyMod and KeyCode are available
-        if (monaco?.KeyMod && monaco?.KeyCode) {
+        if (_monaco?.KeyMod && _monaco?.KeyCode) {
           // Save shortcut
-          editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+          editor.addCommand(_monaco.KeyMod.CtrlCmd | _monaco.KeyCode.KeyS, () => {
             try {
               manualSave();
             } catch (error) {
@@ -174,7 +171,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
 
           // Execute code shortcut (Ctrl+Enter)
           if (language === 'python') {
-            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+            editor.addCommand(_monaco.KeyMod.CtrlCmd | _monaco.KeyCode.Enter, () => {
               executeCode();
             });
           }
@@ -256,24 +253,32 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
   };
 
   const getStatusColor = () => {
-    if (!currentFile) return 'text-muted-foreground';
-    if (hasUnsavedChanges) return 'text-yellow-500';
-    if (isDirty) return 'text-blue-500';
-    return 'text-green-500';
+    if (!currentFile) return 'bg-gray-100 text-gray-600';
+    if (hasUnsavedChanges) return 'bg-amber-100 text-amber-800';
+    if (isDirty) return 'bg-blue-100 text-blue-800';
+    return 'bg-emerald-100 text-emerald-800';
   };
 
   return (
-    <Card className={`flex flex-col h-full ${className}`}>
+    <div className={`flex flex-col h-full bg-background ${className}`}>
       {/* Editor Header */}
-      <div className="flex items-center justify-between p-3 border-b bg-muted/30">
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4" />
-          <span className="text-sm font-medium">
-            {currentFile?.name || 'script.py'}
-          </span>
-          <span className={`text-xs ${getStatusColor()}`}>
-            {getStatusText()}
-          </span>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 bg-muted/10">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-semibold">
+              {currentFile?.name || 'main.py'}
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusColor()}`}>
+              {getStatusText()}
+            </span>
+            {hasUnsavedChanges && (
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Unsaved changes" />
+            )}
+          </div>
         </div>
         
         <div className="flex items-center gap-2">
@@ -282,10 +287,10 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
             size="sm"
             onClick={handleSaveClick}
             disabled={!hasUnsavedChanges || !isEditorReady}
-            className="h-8 px-2"
+            className="h-8 px-3 text-xs"
           >
-            <Save className="h-4 w-4" />
-            <span className="ml-1 text-xs">Save</span>
+            <Save className="h-3.5 w-3.5 mr-1.5" />
+            Save
           </Button>
           
           {/* Execute/Run Button */}
@@ -294,33 +299,25 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
             size="sm"
             onClick={isExecuting ? stopExecution : executeCode}
             disabled={!isEditorReady || !currentContainer || !isConnected}
-            className="h-8 px-2"
+            className="h-8 px-3 text-xs font-medium"
           >
             {isExecuting ? (
               <>
-                <Square className="h-4 w-4" />
-                <span className="ml-1 text-xs">Stop</span>
+                <Square className="h-3.5 w-3.5 mr-1.5" />
+                Stop
               </>
             ) : (
               <>
-                <Play className="h-4 w-4" />
-                <span className="ml-1 text-xs">Run</span>
+                <Play className="h-3.5 w-3.5 mr-1.5" />
+                Run
               </>
             )}
-          </Button>
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2"
-          >
-            <Settings className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
       {/* Monaco Editor */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 bg-background">
         <Editor
           height="100%"
           language={language}
@@ -379,7 +376,7 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
               <div className="text-sm text-muted-foreground">Loading editor...</div>
             </div>
           }
-          beforeMount={(monaco) => {
+          beforeMount={(_monaco) => {
             // Configure Monaco before it mounts
             try {
               // Set up any global Monaco configurations here
@@ -408,6 +405,6 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
           )}
         </div>
       </div>
-    </Card>
+    </div>
   );
 } 

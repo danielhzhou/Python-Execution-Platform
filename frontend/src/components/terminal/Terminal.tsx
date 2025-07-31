@@ -5,8 +5,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useAppStore } from '../../stores/appStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
-import { Card } from '../ui/card';
-import { Terminal as TerminalIcon, Wifi, WifiOff } from 'lucide-react';
+import { Terminal as TerminalIcon } from 'lucide-react';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -299,39 +298,54 @@ export function Terminal({ className }: TerminalProps) {
 
 
   return (
-    <Card className={`flex flex-col h-full w-full ${className}`}>
-      {/* Terminal Header - Simplified */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b flex-shrink-0 bg-muted/30">
-        <TerminalIcon className="h-4 w-4" />
-        <span className="font-medium">Terminal</span>
-        <div className="flex items-center gap-1">
-          {isConnected ? (
-            <>
-              <Wifi className="h-3 w-3 text-green-500" />
-              <span className="text-xs text-green-600">Connected</span>
-            </>
-          ) : (
-            <>
-              <WifiOff className="h-3 w-3 text-red-500" />
-              <span className="text-xs text-red-600">Disconnected</span>
-            </>
-          )}
+    <div className={`flex flex-col h-full w-full bg-background ${className}`}>
+      {/* Terminal Header */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 bg-muted/10 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <TerminalIcon className="h-4 w-4 text-muted-foreground" />
+            <span className="font-semibold text-sm">Terminal</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
+              isConnected 
+                ? 'bg-emerald-100 text-emerald-800' 
+                : 'bg-red-100 text-red-800'
+            }`}>
+              {isConnected ? (
+                <>
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Connected
+                </>
+              ) : (
+                <>
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  Disconnected
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Python 3.11</span>
         </div>
       </div>
 
       {/* Terminal Content */}
-      <div className="flex-1 relative overflow-hidden min-h-0">
+      <div className="flex-1 relative overflow-hidden min-h-0 bg-gray-900">
         {/* Loading Overlay */}
         {isLoading && (
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-20">
+          <div className="absolute inset-0 bg-gray-900/95 backdrop-blur-sm flex items-center justify-center z-20">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500 mx-auto mb-4"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mx-auto mb-4"></div>
               <div className="text-white">
-                <div className="font-medium">
+                <div className="font-medium text-sm">
                   {loading ? 'Creating container...' : 'Connecting to terminal...'}
                 </div>
-                <div className="text-sm text-gray-300 mt-1">
-                  Please wait while we set up your Python environment
+                <div className="text-xs text-gray-400 mt-2">
+                  Setting up your Python environment
                 </div>
               </div>
             </div>
@@ -357,6 +371,6 @@ export function Terminal({ className }: TerminalProps) {
           }}
         />
       </div>
-    </Card>
+    </div>
   );
 } 

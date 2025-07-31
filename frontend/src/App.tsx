@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from './components/layout/Header';
 import { FileTree } from './components/layout/FileTree';
+import { ResizablePanel } from './components/layout/ResizablePanel';
 
 import { MonacoEditor } from './components/editor/MonacoEditor';
 import { Terminal } from './components/terminal/Terminal';
@@ -105,33 +106,47 @@ function App() {
           )}
 
           {/* Header */}
-          <Header className="border-b flex-shrink-0" />
+          <Header className="flex-shrink-0" />
           
-          {/* Main Layout */}
-          <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-            {/* File Tree - Left Panel */}
-            <div className="w-64 border-r overflow-hidden">
-              <ErrorBoundary>
-                <FileTree />
-              </ErrorBoundary>
-            </div>
-            
-            {/* Main Content - Editor and Terminal */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Code Editor - Top Half */}
-              <div className="flex-1 border-b overflow-hidden">
-                <MonacoErrorBoundary>
-                  <MonacoEditor />
-                </MonacoErrorBoundary>
+          {/* Main Layout with Resizable Panels */}
+          <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
+            <ResizablePanel
+              direction="horizontal"
+              defaultSize={20}
+              minSize={15}
+              maxSize={35}
+            >
+              {/* File Explorer Panel */}
+              <div className="h-full border-r border-border/50 bg-muted/20">
+                <ErrorBoundary>
+                  <FileTree />
+                </ErrorBoundary>
               </div>
               
-              {/* Terminal - Bottom Half */}
-              <div className="flex-1 overflow-hidden">
-                <TerminalErrorBoundary>
-                  <Terminal />
-                </TerminalErrorBoundary>
+              {/* Editor & Terminal Panel */}
+              <div className="h-full flex flex-col">
+                <ResizablePanel
+                  direction="vertical"
+                  defaultSize={65}
+                  minSize={30}
+                  maxSize={80}
+                >
+                  {/* Code Editor */}
+                  <div className="h-full border-b border-border/50">
+                    <MonacoErrorBoundary>
+                      <MonacoEditor />
+                    </MonacoErrorBoundary>
+                  </div>
+                  
+                  {/* Terminal/Output */}
+                  <div className="h-full bg-background">
+                    <TerminalErrorBoundary>
+                      <Terminal />
+                    </TerminalErrorBoundary>
+                  </div>
+                </ResizablePanel>
               </div>
-            </div>
+            </ResizablePanel>
           </div>
 
           {/* Submission Dialog */}

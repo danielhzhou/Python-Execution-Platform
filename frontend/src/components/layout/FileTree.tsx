@@ -267,10 +267,12 @@ export function FileTree({ className }: { className?: string }) {
     return (
       <div key={node.path}>
         <div
-          className={`flex items-center gap-1 p-1 cursor-pointer hover:bg-muted/50 ${
-            isSelected ? 'bg-primary/10 text-primary' : ''
+          className={`flex items-center gap-2 py-1.5 px-2 mx-1 rounded-md cursor-pointer transition-colors group ${
+            isSelected 
+              ? 'bg-primary/10 text-primary border border-primary/20' 
+              : 'hover:bg-muted/50 text-foreground'
           }`}
-          style={{ paddingLeft: `${level * 16 + 8}px` }}
+          style={{ paddingLeft: `${level * 12 + 8}px` }}
           onClick={() => {
             if (node.type === 'directory') {
               toggleDirectory(node.path);
@@ -282,25 +284,25 @@ export function FileTree({ className }: { className?: string }) {
           {node.type === 'directory' ? (
             <>
               {node.isExpanded ? (
-                <ChevronDown className="h-3 w-3" />
+                <ChevronDown className="h-3 w-3 text-muted-foreground group-hover:text-foreground" />
               ) : (
-                <ChevronRight className="h-3 w-3" />
+                <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-foreground" />
               )}
               {node.isExpanded ? (
-                <FolderOpen className="h-4 w-4" />
+                <FolderOpen className="h-4 w-4 text-blue-500" />
               ) : (
-                <Folder className="h-4 w-4" />
+                <Folder className="h-4 w-4 text-blue-500" />
               )}
             </>
           ) : (
             <>
               <div className="w-3" /> {/* Spacer for alignment */}
-              <File className="h-4 w-4" />
+              <File className={`h-4 w-4 ${getFileIcon(node.name)}`} />
             </>
           )}
-          <span className="text-sm truncate">{node.name}</span>
+          <span className="text-sm truncate font-medium">{node.name}</span>
           {node.size !== undefined && (
-            <span className="text-xs text-muted-foreground ml-auto">
+            <span className="text-xs text-muted-foreground ml-auto opacity-60 group-hover:opacity-100">
               {formatFileSize(node.size)}
             </span>
           )}
@@ -315,6 +317,22 @@ export function FileTree({ className }: { className?: string }) {
     );
   };
 
+  // Get file icon color based on extension
+  const getFileIcon = (fileName: string): string => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'py': return 'text-yellow-500';
+      case 'js': return 'text-yellow-400';
+      case 'ts': return 'text-blue-400';
+      case 'json': return 'text-green-500';
+      case 'md': return 'text-gray-500';
+      case 'txt': return 'text-gray-400';
+      case 'yaml':
+      case 'yml': return 'text-red-400';
+      default: return 'text-muted-foreground';
+    }
+  };
+
   // Format file size
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -325,17 +343,12 @@ export function FileTree({ className }: { className?: string }) {
   };
 
   return (
-    <Card className={`flex flex-col h-full ${className}`}>
+    <div className={`flex flex-col h-full bg-background ${className}`}>
       {/* File Tree Header */}
-      <div className="flex items-center justify-between p-3 border-b bg-muted/30">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-muted/20">
         <div className="flex items-center gap-2">
-          <Folder className="h-4 w-4" />
-          <span className="font-medium">Files</span>
-          {currentContainer && (
-            <span className="text-xs text-muted-foreground">
-              ({currentContainer.id.substring(0, 8)})
-            </span>
-          )}
+          <Folder className="h-4 w-4 text-muted-foreground" />
+          <span className="font-semibold text-sm">Explorer</span>
         </div>
         
         <div className="flex items-center gap-1">
@@ -344,42 +357,45 @@ export function FileTree({ className }: { className?: string }) {
             size="sm"
             onClick={createFile}
             disabled={!currentContainer}
-            className="h-7 px-2"
+            className="h-7 w-7 p-0 hover:bg-muted/60"
+            title="New File"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={fetchContainerFiles}
             disabled={loading || !currentContainer}
-            className="h-7 px-2"
+            className="h-7 w-7 p-0 hover:bg-muted/60"
+            title="Refresh"
           >
-            <RotateCcw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+            <RotateCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
 
       {/* File Tree Content */}
-      <div className="flex-1 overflow-auto min-h-0">
+      <div className="flex-1 overflow-auto min-h-0 px-2">
         {loading ? (
           <div className="flex items-center justify-center h-32">
             <div className="text-sm text-muted-foreground">Loading files...</div>
           </div>
         ) : !currentContainer ? (
           <div className="flex items-center justify-center h-32">
-            <div className="text-sm text-muted-foreground">No container selected</div>
+            <div className="text-sm text-muted-foreground">No container available</div>
           </div>
         ) : fileTree.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 gap-2">
+          <div className="flex flex-col items-center justify-center h-32 gap-3">
             <div className="text-sm text-muted-foreground">No files found</div>
             <Button
               variant="outline"
               size="sm"
               onClick={createFile}
+              className="h-8 px-3"
             >
-              <Plus className="h-3 w-3 mr-1" />
-              Create file
+              <Plus className="h-3 w-3 mr-2" />
+              New File
             </Button>
           </div>
         ) : (
@@ -390,14 +406,16 @@ export function FileTree({ className }: { className?: string }) {
       </div>
 
       {/* File Tree Footer */}
-      <div className="flex items-center justify-between p-2 border-t bg-muted/30 text-xs text-muted-foreground">
-        <div className="flex items-center gap-4">
+      {fileTree.length > 0 && (
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border/50 bg-muted/10 text-xs text-muted-foreground">
           <span>{fileTree.length} items</span>
           {selectedFile && (
-            <span>Selected: {selectedFile.split('/').pop()}</span>
+            <span className="truncate max-w-32" title={selectedFile}>
+              {selectedFile.split('/').pop()}
+            </span>
           )}
         </div>
-      </div>
-    </Card>
+      )}
+    </div>
   );
 }
