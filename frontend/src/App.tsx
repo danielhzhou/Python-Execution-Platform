@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Header } from './components/layout/Header';
+import { FileTree } from './components/layout/FileTree';
 
 import { MonacoEditor } from './components/editor/MonacoEditor';
 import { Terminal } from './components/terminal/Terminal';
@@ -108,7 +109,14 @@ function App() {
           
           {/* Main Layout */}
           <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-            {/* Main Content - Vertical Split */}
+            {/* File Tree - Left Panel */}
+            <div className="w-64 border-r overflow-hidden">
+              <ErrorBoundary>
+                <FileTree />
+              </ErrorBoundary>
+            </div>
+            
+            {/* Main Content - Editor and Terminal */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Code Editor - Top Half */}
               <div className="flex-1 border-b overflow-hidden">
