@@ -69,6 +69,10 @@ class ContainerService:
         try:
             self._check_docker_available()
             await self._ensure_network_exists()
+            
+            # Recover any existing containers that are running but not tracked
+            await self._recover_lost_containers()
+            
             self._cleanup_task = asyncio.create_task(self._cleanup_containers())
             logger.info("Container service started successfully")
         except Exception as e:
@@ -119,7 +123,10 @@ class ContainerService:
                     logger.warning(f"   Failed to cleanup container {session.id}: {e}")
                     # Continue anyway - we'll create a new one
         
-        container_id = f"pyexec-{user_id[:8]}-{uuid.uuid4().hex[:8]}"
+        # Additional Docker-level cleanup to catch any orphaned containers
+        await self._cleanup_orphaned_containers(str(user_id))
+        
+        container_id = f"pyexec-{str(user_id)[:8]}-{uuid.uuid4().hex[:8]}"
         logger.info(f"🐳 Creating Docker container with ID: {container_id}")
         
         try:
@@ -319,10 +326,14 @@ Happy coding! 🐍
             return None
             
         # Look up container by session ID (how containers are stored)
-        container = self.active_containers.get(session_id)
-        if not container and hasattr(session, 'id'):
-            # Try with the UUID from the session object
+        # First try with the database session ID (how containers are actually stored)
+        container = None
+        if hasattr(session, 'id'):
             container = self.active_containers.get(session.id)
+        
+        # Fallback to session_id parameter if not found
+        if not container:
+            container = self.active_containers.get(session_id)
         
         if not container:
             return None
@@ -368,9 +379,13 @@ Happy coding! 🐍
         # Look up container by session ID (how containers are stored)
         container = None
         if self.docker:
-            container = self.active_containers.get(session_id)
-            if not container and hasattr(session, 'id'):
+            # First try with the database session ID (how containers are actually stored)
+            if hasattr(session, 'id'):
                 container = self.active_containers.get(session.id)
+            
+            # Fallback to session_id parameter if not found
+            if not container:
+                container = self.active_containers.get(session_id)
         
         if container:
             try:
@@ -411,10 +426,14 @@ Happy coding! 🐍
             return False
             
         # Look up container by session ID (how containers are stored)
-        container = self.active_containers.get(session_id)
-        if not container and hasattr(session, 'id'):
-            # Try with the UUID from the session object
+        # First try with the database session ID (how containers are actually stored)
+        container = None
+        if hasattr(session, 'id'):
             container = self.active_containers.get(session.id)
+        
+        # Fallback to session_id parameter if not found
+        if not container:
+            container = self.active_containers.get(session_id)
         
         if not container:
             return False
@@ -435,10 +454,14 @@ Happy coding! 🐍
             return False
             
         # Look up container by session ID (how containers are stored)
-        container = self.active_containers.get(session_id)
-        if not container and hasattr(session, 'id'):
-            # Try with the UUID from the session object
+        # First try with the database session ID (how containers are actually stored)
+        container = None
+        if hasattr(session, 'id'):
             container = self.active_containers.get(session.id)
+        
+        # Fallback to session_id parameter if not found
+        if not container:
+            container = self.active_containers.get(session_id)
         
         if not container:
             return False
@@ -532,6 +555,105 @@ Happy coding! 🐍
             logger.error(f"Error getting container session for {container_id}: {e}")
             return None
         
+    async def _cleanup_orphaned_containers(self, user_id: str):
+        """Clean up any Docker containers for this user that aren't tracked in database"""
+        if not self.docker:
+            return
+            
+        try:
+            # Find all containers with names matching this user's pattern
+            user_prefix = f"pyexec-{user_id[:8]}"
+            all_containers = self.docker.container.list(all=True)
+            
+            orphaned_containers = []
+            for container in all_containers:
+                if container.name.startswith(user_prefix):
+                    # Check if this container is tracked in our active_containers
+                    is_tracked = any(
+                        tracked_container.id == container.id 
+                        for tracked_container in self.active_containers.values()
+                    )
+                    
+                    if not is_tracked:
+                        orphaned_containers.append(container)
+            
+            if orphaned_containers:
+                logger.info(f"🧹 Found {len(orphaned_containers)} orphaned containers for user {user_id}")
+                for container in orphaned_containers:
+                    try:
+                        logger.info(f"   Removing orphaned container: {container.name}")
+                        if container.state.status == "running":
+                            container.stop(time=5)
+                        container.remove(volumes=True)
+                    except Exception as e:
+                        logger.warning(f"   Failed to remove orphaned container {container.name}: {e}")
+                        
+        except Exception as e:
+            logger.error(f"Error during orphaned container cleanup: {e}")
+
+    async def _recover_lost_containers(self):
+        """Recover containers that are running in Docker but not tracked in memory"""
+        if not self.docker:
+            return
+            
+        try:
+            logger.info("🔍 Scanning for lost containers to recover...")
+            
+            # Get all running containers with our naming pattern
+            all_containers = self.docker.container.list(filters={"name": "pyexec-"})
+            
+            # Get all active sessions from database
+            from app.services.database_service import db_service
+            active_sessions = []
+            try:
+                all_sessions = await db_service.get_all_terminal_sessions()
+                active_sessions = [s for s in all_sessions if s.status != ContainerStatus.TERMINATED.value]
+            except Exception as e:
+                logger.error(f"Failed to get database sessions: {e}")
+                return
+            
+            recovered_count = 0
+            for container in all_containers:
+                # Find matching database session
+                matching_session = None
+                for session in active_sessions:
+                    # Match by container ID (full or partial) or container name
+                    if (container.id == session.container_id or 
+                        container.id.startswith(session.container_id) or
+                        session.container_id.startswith(container.id) or
+                        container.name == session.container_id):
+                        matching_session = session
+                        break
+                
+                if matching_session:
+                    # Check if already tracked
+                    if matching_session.id not in self.active_containers:
+                        logger.info(f"🔄 Recovering lost container: {container.name} -> session {matching_session.id}")
+                        self.active_containers[matching_session.id] = container
+                        self.container_sessions[container.id] = matching_session.id
+                        recovered_count += 1
+                        
+                        # Update database status to RUNNING if needed
+                        if matching_session.status != ContainerStatus.RUNNING.value:
+                            await db_service.update_terminal_session(
+                                matching_session.id,
+                                status=ContainerStatus.RUNNING.value
+                            )
+                else:
+                    logger.warning(f"⚠️ Found orphaned container with no database session: {container.name}")
+            
+            if recovered_count > 0:
+                logger.info(f"✅ Recovered {recovered_count} lost containers")
+            else:
+                logger.info("✅ No lost containers found")
+                
+        except Exception as e:
+            logger.error(f"Error during container recovery: {e}")
+
+    async def recover_containers(self):
+        """Public method to manually trigger container recovery"""
+        await self._recover_lost_containers()
+
     async def _cleanup_containers(self):
         """Background task to clean up expired containers"""
         while True:

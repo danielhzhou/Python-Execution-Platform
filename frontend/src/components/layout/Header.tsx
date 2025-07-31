@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore } from '../../stores/appStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -34,6 +35,34 @@ export function Header({ className }: HeaderProps) {
   const { isConnected } = useTerminalStore();
   
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const updateMenuPosition = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + 8, // 8px gap below button
+        right: window.innerWidth - rect.right, // Distance from right edge
+      });
+    }
+  };
+
+  const toggleUserMenu = () => {
+    if (!showUserMenu) {
+      updateMenuPosition();
+    }
+    setShowUserMenu(!showUserMenu);
+  };
+
+  // Update position on window resize
+  useEffect(() => {
+    if (showUserMenu) {
+      const handleResize = () => updateMenuPosition();
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
+  }, [showUserMenu]);
 
   return (
     <header className={cn(
@@ -68,9 +97,9 @@ export function Header({ className }: HeaderProps) {
           )}
           
           {isDirty && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-600">
-              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              <span className="font-medium">Unsaved</span>
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/20">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="font-medium">Unsaved Changes</span>
             </div>
           )}
         </div>
@@ -100,9 +129,10 @@ export function Header({ className }: HeaderProps) {
         {/* User Menu */}
         <div className="relative">
           <Button
+            ref={buttonRef}
             variant="ghost"
             size="sm"
-            onClick={() => setShowUserMenu(!showUserMenu)}
+            onClick={toggleUserMenu}
             className="gap-2 h-8 px-3"
           >
             <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center">
@@ -113,59 +143,69 @@ export function Header({ className }: HeaderProps) {
             </span>
           </Button>
           
-          {showUserMenu && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-background border rounded-lg shadow-lg z-50 p-1">
-              <div className="px-3 py-2 border-b border-border/50">
-                <div className="text-sm font-medium">{user?.email?.split('@')[0] || 'User'}</div>
-                <div className="text-xs text-muted-foreground">{user?.email || 'Anonymous User'}</div>
-              </div>
-              
-              <div className="py-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start h-8 px-3"
-                >
-                  <User className="h-4 w-4 mr-2" />
-                  Profile
-                </Button>
-                
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start h-8 px-3"
-                >
-                  <Settings className="h-4 w-4 mr-2" />
-                  Settings
-                </Button>
-                
-                <div className="border-t border-border/50 my-1" />
-                
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start h-8 px-3 text-red-600 hover:text-red-700 hover:bg-red-50"
-                >
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Sign Out
-                </Button>
-              </div>
-            </div>
-          )}
+
         </div>
       </div>
+      
+      {/* User Menu Dropdown - Portaled */}
+      {showUserMenu && createPortal(
+        <div 
+          className="fixed w-56 bg-background border rounded-lg shadow-lg z-[9999] p-1"
+          style={{
+            top: `${menuPosition.top}px`,
+            right: `${menuPosition.right}px`,
+          }}
+        >
+          <div className="px-3 py-2 border-b border-border/50">
+            <div className="text-sm font-medium">{user?.email?.split('@')[0] || 'User'}</div>
+            <div className="text-xs text-muted-foreground">{user?.email || 'Anonymous User'}</div>
+          </div>
+          
+          <div className="py-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start h-8 px-3"
+            >
+              <User className="h-4 w-4 mr-2" />
+              Profile
+            </Button>
+            
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start h-8 px-3"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Settings
+            </Button>
+            
+            <div className="border-t border-border/50 my-1" />
+            
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start h-8 px-3 text-red-600 hover:text-red-700 hover:bg-red-50"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Sign Out
+            </Button>
+          </div>
+        </div>,
+        document.body
+      )}
       
       {/* Backdrop for user menu */}
       {showUserMenu && (
         <div 
-          className="fixed inset-0 z-40" 
+          className="fixed inset-0 z-[9998]" 
           onClick={() => setShowUserMenu(false)}
         />
       )}
       
       {/* Error Toast */}
       {error && (
-        <div className="fixed top-16 right-4 z-50 max-w-sm">
+        <div className="fixed top-16 right-4 z-[9997] max-w-sm">
           <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-2 rounded-lg shadow-lg">
             <div className="text-sm font-medium">Error</div>
             <div className="text-xs opacity-90">{typeof error === 'string' ? error : 'Something went wrong'}</div>

@@ -14,7 +14,7 @@ from queue import Queue, Empty
 import ptyprocess
 
 from app.core.config import settings
-from app.models.container import TerminalOutput
+from app.models.container import TerminalOutput, ContainerStatus
 from app.services.database_service import db_service
 
 logger = logging.getLogger(__name__)

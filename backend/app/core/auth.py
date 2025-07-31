@@ -158,16 +158,15 @@ async def create_user_account(email: str, password: str, full_name: Optional[str
     supabase = get_supabase_client()
     
     try:
-        # Create user with Supabase Auth
+        # Create user with Supabase Auth (no email confirmation required)
         auth_response = supabase.auth.sign_up({
             "email": email,
             "password": password,
             "options": {
                 "data": {
                     "full_name": full_name
-                },
-                # Add proper redirect URL for email confirmation
-                "email_redirect_to": "http://localhost:5173"
+                }
+                # No email confirmation required
             }
         })
         
@@ -176,8 +175,8 @@ async def create_user_account(email: str, password: str, full_name: Optional[str
             return {
                 "user_id": auth_response.user.id,
                 "email": auth_response.user.email,
-                "message": "Registration successful! Please check your email for verification link.",
-                "email_confirmation_required": True
+                "message": "Registration successful! You can now log in.",
+                "email_confirmation_required": False
             }
         else:
             raise HTTPException(
@@ -219,10 +218,8 @@ async def authenticate_user(email: str, password: str) -> dict:
         })
         
         if auth_response.user and auth_response.session:
-            # Check if email is confirmed (for better user experience)
-            if not auth_response.user.email_confirmed_at:
-                # Still allow login but inform about email confirmation
-                logger.warning(f"User {email} logged in without email confirmation")
+            # Email confirmation not required - user can login immediately
+            logger.info(f"User {email} logged in successfully")
             
             return {
                 "user": auth_response.user,
@@ -245,7 +242,9 @@ async def authenticate_user(email: str, password: str) -> dict:
         if "Invalid login credentials" in error_message:
             detail = "Invalid email or password. Please check your credentials."
         elif "Email not confirmed" in error_message:
-            detail = "Please verify your email address before logging in. Check your inbox for a verification link."
+            # For now, we'll treat unconfirmed emails as invalid credentials
+            # until Supabase email confirmation is disabled
+            detail = "Invalid email or password. Please check your credentials."
         elif "Too many requests" in error_message:
             detail = "Too many login attempts. Please wait a moment and try again."
         else:

@@ -4,6 +4,9 @@ import { FileTree } from './components/layout/FileTree';
 import { ResizablePanel } from './components/layout/ResizablePanel';
 
 import { MonacoEditor } from './components/editor/MonacoEditor';
+import { SaveButton } from './components/editor/SaveButton';
+import { SaveStatusIndicator } from './components/editor/SaveStatusIndicator';
+import { FileTabIndicator } from './components/editor/FileTabIndicator';
 import { Terminal } from './components/terminal/Terminal';
 import { AuthForm } from './components/common/AuthForm';
 import { SubmissionDialog } from './components/common/SubmissionDialog';
@@ -281,12 +284,13 @@ function App() {
                 <div className="flex items-center">
                   <div className="px-3 py-1 text-sm text-white bg-[#1e1e1e] border-r border-border/30 flex items-center gap-2">
                     <span>{currentFile?.name || 'main.py'}</span>
-                    <div className="w-1 h-1 rounded-full bg-white/60"></div>
+                    <FileTabIndicator />
                   </div>
                 </div>
                 
-                {/* Run Button */}
+                {/* Save and Run Buttons */}
                 <div className="flex items-center gap-2">
+                  <SaveButton />
                   <button 
                     onClick={handleRunCode}
                     disabled={!currentContainer || !isAuthenticated || isExecuting}
@@ -424,6 +428,8 @@ function App() {
               <span>UTF-8</span>
               <span>LF</span>
               <span>Spaces: 4</span>
+              {/* Save Status in Status Bar */}
+              <SaveStatusIndicator />
             </div>
             
             <div className="flex items-center gap-4">

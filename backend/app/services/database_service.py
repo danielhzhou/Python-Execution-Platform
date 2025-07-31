@@ -249,9 +249,11 @@ class DatabaseService:
             statement = select(TerminalSession).where(TerminalSession.user_id == user_id)
             
             if active_only:
+                # Find all non-terminated sessions (CREATING, RUNNING, STOPPED, ERROR)
+                # This ensures proper cleanup of containers in any non-terminal state
                 statement = statement.where(
                     and_(
-                        TerminalSession.status == ContainerStatus.RUNNING.value,
+                        TerminalSession.status != ContainerStatus.TERMINATED.value,
                         TerminalSession.terminated_at.is_(None)
                     )
                 )
