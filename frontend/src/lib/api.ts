@@ -136,6 +136,44 @@ export const containerApi = {
   },
 }
 
+export const fileApi = {
+  async list(containerId: string): Promise<ApiResponse<any[]>> {
+    return apiRequest<any[]>(`/containers/${containerId}/files`)
+  },
+
+  async get(containerId: string, path: string): Promise<ApiResponse<any>> {
+    return apiRequest<any>(`/containers/${containerId}/files/content?path=${encodeURIComponent(path)}`)
+  },
+
+  async save(containerId: string, path: string, content: string): Promise<ApiResponse<any>> {
+    return apiRequest<any>(`/containers/${containerId}/files`, {
+      method: 'POST',
+      body: JSON.stringify({
+        path,
+        content
+      }),
+    })
+  },
+
+  async delete(containerId: string, path: string): Promise<ApiResponse<any>> {
+    return apiRequest(`/containers/${containerId}/files?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  async createDirectory(containerId: string, path: string): Promise<ApiResponse<any>> {
+    return apiRequest(`/containers/${containerId}/directories?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+    })
+  },
+
+  async rename(containerId: string, oldPath: string, newPath: string): Promise<ApiResponse<any>> {
+    return apiRequest(`/containers/${containerId}/files/rename?old_path=${encodeURIComponent(oldPath)}&new_path=${encodeURIComponent(newPath)}`, {
+      method: 'POST',
+    })
+  },
+}
+
 export const projectApi = {
   async submit(containerId: string, title: string, description?: string): Promise<ApiResponse<any>> {
     return apiRequest('/projects/submit', {
@@ -146,22 +184,5 @@ export const projectApi = {
         description,
       }),
     })
-  },
-}
-
-export const fileApi = {
-  async save(containerId: string, filename: string, content: string): Promise<ApiResponse<any>> {
-    return apiRequest('/files/save', {
-      method: 'POST',
-      body: JSON.stringify({
-        container_id: containerId,
-        filename,
-        content,
-      }),
-    })
-  },
-
-  async load(containerId: string, filename: string): Promise<ApiResponse<{ content: string }>> {
-    return apiRequest<{ content: string }>(`/files/load?container_id=${containerId}&filename=${filename}`)
   },
 }
