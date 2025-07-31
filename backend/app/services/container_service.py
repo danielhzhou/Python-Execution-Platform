@@ -105,9 +105,11 @@ class ContainerService:
         logger.info(f"   Project Name: {project_name}")
         logger.info(f"   Initial Files: {len(initial_files) if initial_files else 0} files")
         
-        if not DOCKER_AVAILABLE:
-            logger.error("❌ Docker client not available - cannot create container")
-            raise ImportError("Docker client not available. Please install python-on-whales and ensure Docker is running.")
+        try:
+            self._check_docker_available()
+        except Exception as e:
+            logger.error(f"❌ Docker not available: {e}")
+            raise ConnectionError(f"Docker service not available: {str(e)}")
         
         # ALWAYS cleanup existing containers first to ensure single container per user
         logger.info(f"🧹 Cleaning up any existing containers for user {user_id}")
@@ -314,27 +316,12 @@ Happy coding! 🐍
             
     async def get_container_info(self, session_id: str) -> Optional[ContainerInfo]:
         """Get container information"""
-        try:
-            self._check_docker_available()
-        except Exception as e:
-            logger.error(f"Docker not available for container info: {e}")
-            return None
-            
-        # Get session from database first, then check runtime cache
+        # Get session from database first
         session = await db_service.get_terminal_session(session_id)
         if not session:
             return None
             
-        # Look up container by session ID (how containers are stored)
-        # First try with the database session ID (how containers are actually stored)
-        container = None
-        if hasattr(session, 'id'):
-            container = self.active_containers.get(session.id)
-        
-        # Fallback to session_id parameter if not found
-        if not container:
-            container = self.active_containers.get(session_id)
-        
+        container = await self.get_container_by_session(session_id)
         if not container:
             return None
             
@@ -376,16 +363,7 @@ Happy coding! 🐍
             return False
         
         # Try to clean up Docker container if Docker is available
-        # Look up container by session ID (how containers are stored)
-        container = None
-        if self.docker:
-            # First try with the database session ID (how containers are actually stored)
-            if hasattr(session, 'id'):
-                container = self.active_containers.get(session.id)
-            
-            # Fallback to session_id parameter if not found
-            if not container:
-                container = self.active_containers.get(session_id)
+        container = await self.get_container_by_session(session_id)
         
         if container:
             try:
@@ -398,11 +376,8 @@ Happy coding! 🐍
                 container.stop(time=5)
                 container.remove(volumes=True)
                 
-                # Clean up runtime references
-                # Remove from active_containers using the session ID key
-                if session_id in self.active_containers:
-                    del self.active_containers[session_id]
-                elif hasattr(session, 'id') and session.id in self.active_containers:
+                # Clean up runtime references - use session.id as the key
+                if session.id in self.active_containers:
                     del self.active_containers[session.id]
                 
                 logger.info(f"Container {container.name} terminated successfully")
@@ -425,16 +400,7 @@ Happy coding! 🐍
         if not session:
             return False
             
-        # Look up container by session ID (how containers are stored)
-        # First try with the database session ID (how containers are actually stored)
-        container = None
-        if hasattr(session, 'id'):
-            container = self.active_containers.get(session.id)
-        
-        # Fallback to session_id parameter if not found
-        if not container:
-            container = self.active_containers.get(session_id)
-        
+        container = await self.get_container_by_session(session_id)
         if not container:
             return False
             
@@ -453,16 +419,7 @@ Happy coding! 🐍
         if not session:
             return False
             
-        # Look up container by session ID (how containers are stored)
-        # First try with the database session ID (how containers are actually stored)
-        container = None
-        if hasattr(session, 'id'):
-            container = self.active_containers.get(session.id)
-        
-        # Fallback to session_id parameter if not found
-        if not container:
-            container = self.active_containers.get(session_id)
-        
+        container = await self.get_container_by_session(session_id)
         if not container:
             return False
             
@@ -539,6 +496,31 @@ Happy coding! 🐍
             pass
         return None
     
+    async def get_container_by_session(self, session_id: str) -> Optional[Container]:
+        """Get Docker container by session ID with unified lookup logic"""
+        try:
+            self._check_docker_available()
+        except Exception as e:
+            logger.error(f"Docker not available for container lookup: {e}")
+            return None
+            
+        # First try direct lookup by session ID
+        container = self.active_containers.get(session_id)
+        if container:
+            return container
+            
+        # Get session from database to try alternative lookups
+        session = await db_service.get_terminal_session(session_id)
+        if not session:
+            return None
+            
+        if hasattr(session, 'id') and session.id != session_id:
+            container = self.active_containers.get(session.id)
+            if container:
+                return container
+                
+        return None
+
     async def get_container_session(self, container_id: str) -> Optional[TerminalSession]:
         """Get terminal session by container ID"""
         try:
@@ -670,11 +652,11 @@ Happy coding! 🐍
                     
                     # Clean up actual Docker containers for expired sessions
                     # Get all terminated sessions that still have active containers
-                    for container_id in list(self.active_containers.keys()):
-                        session = await db_service.get_terminal_session_by_container(container_id)
+                    for session_id in list(self.active_containers.keys()):
+                        session = await db_service.get_terminal_session(session_id)
                         if session and session.status == ContainerStatus.TERMINATED.value:
-                            logger.info(f"Cleaning up Docker container for terminated session: {session.id}")
-                            await self.terminate_container(session.id)
+                            logger.info(f"Cleaning up Docker container for terminated session: {session_id}")
+                            await self.terminate_container(session_id)
                     
             except asyncio.CancelledError:
                 break
@@ -683,4 +665,4 @@ Happy coding! 🐍
 
 
 # Global container service instance
-container_service = ContainerService() 
+container_service = ContainerService()    

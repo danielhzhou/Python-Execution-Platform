@@ -251,25 +251,22 @@ class WebSocketService:
             except Exception as e:
                 logger.info(f"Direct session lookup failed (expected if using container name): {e}")
             
-            # If not found by direct lookup, try to find by container name
+            # If not found by direct lookup, try container service unified lookup
             if not container_session:
-                logger.info(f"🔍 Searching for session by container name: {session_id}")
+                logger.info(f"🔍 Using container service to find session: {session_id}")
                 
                 from app.services.container_service import container_service
                 
-                # Look through active containers to find matching container name
-                found_session_id = None
-                for db_session_id, container in container_service.active_containers.items():
-                    if hasattr(container, 'name') and container.name == session_id:
-                        found_session_id = db_session_id
-                        logger.info(f"🎯 Found session by container name: {session_id} -> {db_session_id}")
-                        break
+                container = await container_service.get_container_by_session(session_id)
+                if container:
+                    for db_session_id, tracked_container in container_service.active_containers.items():
+                        if tracked_container.id == container.id:
+                            actual_session_id = db_session_id
+                            container_session = await db_service.get_terminal_session(actual_session_id)
+                            logger.info(f"🎯 Found session via container lookup: {session_id} -> {actual_session_id}")
+                            break
                 
-                if found_session_id:
-                    actual_session_id = found_session_id
-                    container_session = await db_service.get_terminal_session(actual_session_id)
-                else:
-                    # If still not found, try to find by container_id field in database
+                if not container_session:
                     logger.info(f"🔍 Searching database for container_id matching: {session_id}")
                     sessions = await db_service.get_all_terminal_sessions()
                     for session in sessions:
@@ -331,4 +328,4 @@ class WebSocketService:
 
 
 # Global WebSocket service instance
-websocket_service = WebSocketService() 
+websocket_service = WebSocketService()  

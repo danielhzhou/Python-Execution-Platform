@@ -109,10 +109,14 @@ class SystemVerifier:
             # Test service initialization
             await container_service.start()
             
-            # Check if Docker is available
-            import docker
-            client = docker.from_env()
-            info = client.info()
+            # Check if Docker is available using the same client as container service
+            from app.services.container_service import container_service
+            if container_service.docker:
+                info = container_service.docker.system.info()
+            else:
+                import docker
+                client = docker.from_env()
+                info = client.info()
             
             self.log_result("Container Service", True, 
                           f"Docker available, containers: {info.get('Containers', 0)}")
@@ -247,4 +251,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main())) 
+    sys.exit(asyncio.run(main()))  
