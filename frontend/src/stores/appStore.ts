@@ -34,6 +34,7 @@ interface AppState {
   
   setFiles: (files: any[]) => void;
   setCurrentFile: (file: any | null) => void;
+  updateFile: (id: string, updates: Partial<any>) => void;
   
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -158,6 +159,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   // File actions
   setFiles: (files) => set({ files }),
   setCurrentFile: (currentFile) => set({ currentFile }),
+  
+  updateFile: (id, updates) => set(state => ({
+    files: state.files.map(file =>
+      file.id === id ? { ...file, ...updates } : file
+    ),
+    currentFile: state.currentFile?.id === id 
+      ? { ...state.currentFile, ...updates }
+      : state.currentFile
+  })),
   
   // UI actions
   setLoading: (loading) => set({ loading }),

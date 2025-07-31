@@ -150,8 +150,7 @@ export const fileApi = {
       method: 'POST',
       body: JSON.stringify({
         path,
-        content,
-        containerId
+        content
       }),
     })
   },
@@ -159,6 +158,18 @@ export const fileApi = {
   async delete(containerId: string, path: string): Promise<ApiResponse<any>> {
     return apiRequest(`/containers/${containerId}/files?path=${encodeURIComponent(path)}`, {
       method: 'DELETE',
+    })
+  },
+
+  async createDirectory(containerId: string, path: string): Promise<ApiResponse<any>> {
+    return apiRequest(`/containers/${containerId}/directories?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+    })
+  },
+
+  async rename(containerId: string, oldPath: string, newPath: string): Promise<ApiResponse<any>> {
+    return apiRequest(`/containers/${containerId}/files/rename?old_path=${encodeURIComponent(oldPath)}&new_path=${encodeURIComponent(newPath)}`, {
+      method: 'POST',
     })
   },
 }

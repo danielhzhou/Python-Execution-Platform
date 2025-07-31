@@ -63,19 +63,55 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
       // Use current file if available, otherwise create a temporary file
       let filename = currentFile?.path || `/workspace/script_${Date.now()}.py`;
       
-      // If using current file, save it first
+      // Clear terminal first
+      sendCommand('\x0c'); // Clear screen
+      
+      // If using current file, save it first and verify
       if (currentFile) {
-        await manualSave();
-        filename = currentFile.path;
+        sendCommand(`echo "💾 Saving ${currentFile.path}..."\n`);
+        console.log('🔄 Saving file before execution:', {
+          path: currentFile.path,
+          contentLength: content.length,
+          contentPreview: content.substring(0, 100) + '...'
+        });
+        
+        try {
+          await manualSave();
+          console.log('✅ File saved successfully before execution');
+          
+          // Add a small delay to ensure the save operation completes
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Verify the file was saved by checking its content in the container
+          sendCommand(`echo "🔍 Verifying file content..."\n`);
+          sendCommand(`echo "📁 Current directory: $(pwd)"\n`);
+          sendCommand(`echo "📋 Files in workspace: $(ls -la /workspace/)"\n`);
+          sendCommand(`echo "📊 File size: $(wc -c < '${currentFile.path}') bytes"\n`);
+          sendCommand(`echo "🔍 First 5 lines of ${currentFile.path}:"\n`);
+          sendCommand(`head -5 '${currentFile.path}'\n`);
+          sendCommand(`echo "🔍 Looking for [3, 3, 3, 3, 3] in file:"\n`);
+          sendCommand(`grep -n "3, 3, 3" '${currentFile.path}' || echo "Pattern not found"\n`);
+          
+          filename = currentFile.path;
+        } catch (saveError) {
+          console.error('❌ Failed to save file before execution:', saveError);
+          setError('Failed to save file before execution');
+          return;
+        }
       } else {
         // Create temporary file for execution
         filename = `/workspace/script_${Date.now()}.py`;
+        console.log('📝 Creating temporary file for execution:', filename);
+        sendCommand(`echo "📝 Creating temporary file: ${filename.split('/').pop()}..."\n`);
         sendCommand(`cat > ${filename} << 'EOF'\n${content}\nEOF\n`);
       }
       
-      // Clear terminal and show execution start
-      sendCommand('\x0c'); // Clear screen
+      // Show execution start
       sendCommand(`echo "🚀 Executing ${filename.split('/').pop()}..."\n`);
+      
+      // Clear Python bytecode cache to ensure fresh execution
+      sendCommand(`find /workspace -name "*.pyc" -delete 2>/dev/null || true\n`);
+      sendCommand(`find /workspace -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true\n`);
       
       // Execute the Python file
       sendCommand(`python3 ${filename}\n`);
@@ -168,6 +204,11 @@ export function MonacoEditor({ className }: MonacoEditorProps) {
     
     try {
       if (value !== undefined && value !== content) {
+        console.log('🔄 Editor content changed:', {
+          oldLength: content.length,
+          newLength: value.length,
+          preview: value.substring(0, 50) + '...'
+        });
         setContent(value);
         
         // Basic syntax validation for Python
