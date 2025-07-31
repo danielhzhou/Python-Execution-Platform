@@ -157,12 +157,7 @@ class TerminalService:
         # Import container_service here to avoid circular import
         from app.services.container_service import container_service
         
-        # Try to get container using session_id as both string and UUID
-        container = container_service.active_containers.get(session_id)
-        if not container and hasattr(container_session, 'id'):
-            # If not found, try with the actual session ID from the database record
-            container = container_service.active_containers.get(container_session.id)
-        
+        container = await container_service.get_container_by_session(session_id)
         if not container:
             logger.error(f"No active container found for session {session_id}")
             logger.error(f"Available containers: {list(container_service.active_containers.keys())}")
@@ -314,12 +309,7 @@ class TerminalService:
             
         from app.services.container_service import container_service
         
-        # Try to get container using session_id as both string and UUID
-        container = container_service.active_containers.get(session_id)
-        if not container and hasattr(container_session, 'id'):
-            # If not found, try with the actual session ID from the database record
-            container = container_service.active_containers.get(container_session.id)
-        
+        container = await container_service.get_container_by_session(session_id)
         if not container:
             return None
             
@@ -375,4 +365,4 @@ class TerminalService:
 
 
 # Create global terminal service instance
-terminal_service = TerminalService() 
+terminal_service = TerminalService()  
