@@ -105,6 +105,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
+      localStorage.removeItem('currentContainerId');
+      
       set({ 
         isAuthenticated: false, 
         user: null,
@@ -119,7 +121,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // Container actions
-  setCurrentContainer: (container) => set({ currentContainer: container }),
+  setCurrentContainer: (container) => {
+    set({ currentContainer: container });
+    if (container) {
+      localStorage.setItem('currentContainerId', container.id);
+    } else {
+      localStorage.removeItem('currentContainerId');
+    }
+  },
   
   addContainer: (container) => set(state => {
     // Check if container already exists
@@ -168,4 +177,4 @@ export const useAppStore = create<AppState>((set, get) => ({
   // UI actions
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
-}));   
+}));      
