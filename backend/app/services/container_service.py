@@ -497,8 +497,7 @@ Happy coding! 🐍
                 logger.info(f"Creating PyPI network: {settings.PYPI_NETWORK_NAME}")
                 self.docker.network.create(
                     name=settings.PYPI_NETWORK_NAME,
-                    driver="bridge",
-                    internal=False  # Allow external access
+                    driver="bridge"
                 )
         except DockerException as e:
             logger.error(f"Failed to ensure PyPI network exists: {e}")
@@ -683,4 +682,4 @@ Happy coding! 🐍
 
 
 # Global container service instance
-container_service = ContainerService() 
+container_service = ContainerService()  
