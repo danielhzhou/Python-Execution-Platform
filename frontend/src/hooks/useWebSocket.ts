@@ -113,6 +113,12 @@ export function useWebSocket() {
         if (message.type === 'error') {
           const errorMsg = message.message || 'WebSocket error';
           console.error('WebSocket error:', errorMsg);
+          
+          if (errorMsg.includes('Container not found') || errorMsg.includes('Invalid session ID')) {
+            console.log('🔄 Container not found, clearing localStorage and will recreate');
+            localStorage.removeItem('currentContainerId');
+          }
+          
           setError(errorMsg);
         }
       });
@@ -158,4 +164,4 @@ export function useWebSocket() {
     setTerminalRef,
     isConnected: wsRef.current?.isConnected || false
   };
-} 
+}  

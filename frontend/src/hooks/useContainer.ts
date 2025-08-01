@@ -332,7 +332,35 @@ export function useContainer() {
       
       const initializeUserContainer = async () => {
         try {
-          // First, load existing containers
+          // First, try to restore container from localStorage
+          const storedContainerId = localStorage.getItem('currentContainerId');
+          if (storedContainerId) {
+            console.log('🔄 Attempting to restore container from localStorage:', storedContainerId);
+            
+            const response = await containerApi.list();
+            if (response.success && response.data) {
+              const storedContainer = response.data.find(c => c.session_id === storedContainerId);
+              if (storedContainer && storedContainer.status === 'running') {
+                console.log('✅ Restored container from localStorage:', storedContainerId);
+                const container: Container = {
+                  id: storedContainer.session_id,
+                  userId: storedContainer.user_id || 'unknown',
+                  dockerId: storedContainer.container_id,
+                  status: storedContainer.status,
+                  createdAt: new Date(),
+                  lastActivity: new Date()
+                };
+                setCurrentContainer(container);
+                setContainerId(container.id);
+                setIsInitialized(true);
+                return; // Early return if restoration successful
+              } else {
+                console.log('⚠️ Stored container not found or not running, will create new one');
+                localStorage.removeItem('currentContainerId');
+              }
+            }
+          }
+          
           await loadContainers();
           
           // Check if user has any running containers after loading
@@ -349,7 +377,7 @@ export function useContainer() {
           }
         } catch (error) {
           console.error('❌ Error initializing user container:', error);
-          // Don't set error here as it might be temporary
+          localStorage.removeItem('currentContainerId');
         }
       };
       
@@ -359,7 +387,7 @@ export function useContainer() {
       // Reset initialization state when user logs out
       setIsInitialized(false);
     }
-  }, [isAuthenticated, isInitialized, loadContainers, createContainer]);
+  }, [isAuthenticated, isInitialized, loadContainers, createContainer, setCurrentContainer, setContainerId]);
 
   return {
     currentContainer,
@@ -373,4 +401,4 @@ export function useContainer() {
     selectContainer,
     isInitialized
   };
-} 
+}  

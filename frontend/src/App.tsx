@@ -74,6 +74,15 @@ function App() {
     }
   }, [isAuthenticated, isInitialized, currentContainer, loading, hasAttemptedContainerCreation, createContainer]);
 
+  useEffect(() => {
+    if (currentContainer && isAuthenticated) {
+      console.log('🔌 Container ready, connecting WebSocket...');
+      const timer = setTimeout(() => {
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentContainer, isAuthenticated]);
+
   // Clear any previous errors when component mounts
   useEffect(() => {
     if (error) {
