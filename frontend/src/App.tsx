@@ -126,9 +126,6 @@ function App() {
       // Use current file if available, otherwise create a temporary file
       let filename = currentFile?.path || `/workspace/script_${Date.now()}.py`;
       
-      // Clear terminal first for clean output
-      terminalSendCommand('\x0c'); // Clear screen
-      
       // If using current file, save it first
       if (currentFile) {
         console.log('🔄 Saving file before execution:', {
