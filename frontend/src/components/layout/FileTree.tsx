@@ -273,15 +273,19 @@ export function FileTree({ className }: { className?: string }) {
     }
   }, [currentContainer?.id, currentContainer?.status, fetchContainerFiles]);
 
-  // Listen for filesystem changes from terminal commands
+  // Listen for workspace file changes only (not directory navigation)
   useEffect(() => {
     const handleFilesystemChange = (event: CustomEvent) => {
+      const { commandType } = event.detail;
       console.log('📁 FileTree received filesystem change event:', event.detail);
       
-      // Refresh file tree with a small delay to allow command to complete
-      setTimeout(() => {
-        fetchContainerFiles();
-      }, 1000);
+      // Only refresh for commands that actually affect workspace files
+      if (['create_file', 'create_dir', 'delete', 'move_copy', 'extract', 'git_operations'].includes(commandType)) {
+        // Refresh file tree with a small delay to allow command to complete
+        setTimeout(() => {
+          fetchContainerFiles();
+        }, 1000);
+      }
     };
 
     // Add event listener

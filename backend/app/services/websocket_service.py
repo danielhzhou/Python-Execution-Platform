@@ -45,29 +45,51 @@ class WebSocketManager:
         # session_id -> current working directory
         self.current_directories: Dict[str, str] = {}
         
-        # Filesystem command patterns for detection
+        # Filesystem command patterns for detection - only workspace-affecting commands
         self.filesystem_command_patterns = {
             'create_file': re.compile(r'^(touch|echo\s+.*\s*>\s*|cat\s+.*\s*>\s*|tee\s+.*|nano\s+|vim\s+|emacs\s+|code\s+)', re.IGNORECASE),
             'create_dir': re.compile(r'^mkdir\s+', re.IGNORECASE),
             'delete': re.compile(r'^(rm\s+|rmdir\s+)', re.IGNORECASE),
             'move_copy': re.compile(r'^(mv\s+|cp\s+|rsync\s+)', re.IGNORECASE),
-            'change_dir': re.compile(r'^cd\s+', re.IGNORECASE),
-            'list_files': re.compile(r'^(ls\s*|dir\s*|find\s+|tree\s*)', re.IGNORECASE),
             'extract': re.compile(r'^(tar\s+|unzip\s+|gunzip\s+|unrar\s+)', re.IGNORECASE),
             'git_operations': re.compile(r'^git\s+(clone|checkout|pull|reset|clean)', re.IGNORECASE),
             'python_file_ops': re.compile(r'\.py\s*$', re.IGNORECASE)
+            # Removed 'change_dir' and 'list_files' - these don't affect workspace files
         }
         
     def _is_filesystem_command(self, command: str) -> tuple[bool, str]:
-        """Check if a command affects the filesystem and return the command type"""
+        """Check if a command affects the workspace filesystem and return the command type"""
         command = command.strip()
         if not command:
             return False, ""
-            
+        
+        # Check each pattern and validate if it affects workspace
         for cmd_type, pattern in self.filesystem_command_patterns.items():
             if pattern.search(command):
                 return True, cmd_type
         return False, ""
+        
+    def _affects_workspace(self, command: str, cmd_type: str, session_id: str) -> bool:
+        """Check if the command actually affects the workspace directory"""
+        command_parts = command.strip().split()
+        
+        # For file/directory operations, check if they target workspace
+        if cmd_type in ['create_file', 'create_dir', 'delete', 'move_copy']:
+            # Check if any arguments point to absolute paths outside workspace
+            for arg in command_parts[1:]:  # Skip the command itself
+                if arg.startswith('/') and not arg.startswith('/workspace'):
+                    # Absolute path outside workspace - doesn't affect our file tree
+                    return False
+            # If we get here, it's either relative paths or workspace paths
+            return True
+            
+        # Git operations and extractions in current directory likely affect workspace
+        if cmd_type in ['git_operations', 'extract', 'python_file_ops']:
+            # Only trigger if we're currently in workspace or subdirectory
+            current_dir = self.current_directories.get(session_id, '/workspace')
+            return current_dir.startswith('/workspace')
+            
+        return True
         
     async def _update_current_directory(self, session_id: str, command: str):
         """Update the current directory tracking for cd commands"""
@@ -319,9 +341,9 @@ class WebSocketManager:
                     if command.startswith('cd '):
                         asyncio.create_task(self._update_current_directory(session_id, command))
                     
-                    # Check if this is a filesystem command and notify clients
+                    # Check if this is a filesystem command that affects workspace and notify clients
                     is_fs_command, command_type = self._is_filesystem_command(command)
-                    if is_fs_command:
+                    if is_fs_command and self._affects_workspace(command, command_type, session_id):
                         # Delay the notification slightly to allow command to execute first
                         asyncio.create_task(self._delayed_filesystem_notification(session_id, command_type, command))
                     
