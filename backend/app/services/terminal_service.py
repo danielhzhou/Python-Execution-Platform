@@ -134,17 +134,7 @@ class TerminalService:
     
     def __init__(self):
         self.active_sessions: Dict[str, TerminalSession] = {}
-        # Enhanced network command patterns
-        self.network_command_patterns = {
-            'pip_install': re.compile(r'\bpip\s+install\b'),
-            'npm_install': re.compile(r'\bnpm\s+install\b'),
-            'npm_add': re.compile(r'\bnpm\s+add\b'),
-            'yarn_install': re.compile(r'\byarn\s+install\b|\byarn\s+add\b'),
-            'pnpm_install': re.compile(r'\bpnpm\s+install\b|\bpnpm\s+add\b'),
-            'git_clone': re.compile(r'\bgit\s+clone\s+https?://'),
-            'curl': re.compile(r'\bcurl\s+'),
-            'wget': re.compile(r'\bwget\s+'),
-        }
+        # Network commands now work by default with PyPI network access
         
     async def create_terminal_session(self, session_id: str) -> bool:
         """Create a new terminal session"""
@@ -196,14 +186,10 @@ class TerminalService:
             working_dir=terminal_session.current_directory
         )
         
-        # Check if this command needs network access
-        if self._needs_network_access(command):
-            await self._handle_network_command(session_id, command)
-        else:
-            # Send command directly (ensure it ends with newline)
-            if not command.endswith('\n'):
-                command += '\n'
-            await terminal_session.send_input(command)
+        # Send command directly (ensure it ends with newline)
+        if not command.endswith('\n'):
+            command += '\n'
+        await terminal_session.send_input(command)
             
         # Update command history in memory
         terminal_session.command_history.append({
@@ -250,20 +236,21 @@ class TerminalService:
         return output_generator()
         
     def _needs_network_access(self, command: str) -> bool:
-        """Check if command needs network access"""
-        return any(pattern.search(command) for pattern in self.network_command_patterns.values())
+        """Network commands now work by default - no special handling needed"""
+        return False  # Always return False since network is always available
         
     async def _handle_network_command(self, session_id: str, command: str):
-        """Handle commands that need network access"""
+        """Handle commands that need network access with process-aware management"""
         from app.services.container_service import container_service
         
         try:
             # Enable network access
             network_enabled = await container_service.enable_network_access(session_id)
             if not network_enabled:
-                error_msg = "Failed to enable network access for command execution\n"
+                error_msg = "⚠️ Failed to enable network access, trying command anyway...\n"
                 await self._send_system_message(session_id, error_msg)
-                return
+                # Don't return - still try to execute the command
+                # It might work if the container already has network access
                 
             # Send appropriate notification based on command type
             if self.network_command_patterns['pip_install'].search(command):
@@ -282,10 +269,10 @@ class TerminalService:
             if terminal_session:
                 await terminal_session.send_input(command)
                 
-            # Wait a bit for command to complete, then disable network
-            await asyncio.sleep(2)
+            # Monitor the command process instead of using fixed timeout
+            await self._monitor_network_command(session_id, command)
                 
-            # Disable network access
+            # Disable network access after command completes
             await container_service.disable_network_access(session_id)
             await self._send_system_message(
                 session_id, 
@@ -294,9 +281,83 @@ class TerminalService:
             
         except Exception as e:
             logger.error(f"Error handling network command: {e}")
+            # Send error message to user but don't terminate session
+            await self._send_system_message(
+                session_id, 
+                f"⚠️ Network command error: {str(e)}\n"
+            )
             # Ensure network is disabled even on error
-            await container_service.disable_network_access(session_id)
+            try:
+                await container_service.disable_network_access(session_id)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup network access: {cleanup_error}")
             
+    async def _monitor_network_command(self, session_id: str, command: str):
+        """Monitor a network command until completion"""
+        from app.services.container_service import container_service
+        
+        # Get container session from database
+        container_session = await db_service.get_terminal_session(session_id)
+        if not container_session:
+            logger.warning(f"No container session found for monitoring: {session_id}, using fallback timing")
+            await asyncio.sleep(60)  # Fallback to reasonable wait time
+            return
+            
+        # Get the container
+        container = container_service.active_containers.get(container_session.id)
+        if not container:
+            logger.warning(f"No active container found for monitoring: {container_session.id}, using fallback timing")
+            await asyncio.sleep(60)  # Fallback to reasonable wait time
+            return
+        
+        # Extract the base command (e.g., "pip" from "pip install pytorch")
+        base_command = command.strip().split()[0]
+        
+        # Monitor for process completion with timeout
+        max_wait_time = 300  # 5 minutes maximum
+        check_interval = 5   # Check every 5 seconds (less frequent to reduce overhead)
+        elapsed_time = 0
+        
+        logger.info(f"Monitoring {base_command} process for session {session_id}")
+        
+        # Initial wait to let the command start
+        await asyncio.sleep(10)
+        elapsed_time += 10
+        
+        while elapsed_time < max_wait_time:
+            try:
+                # Check if the command process is still running
+                # Use a more robust check that won't fail if pgrep isn't available
+                result = container.execute(
+                    ["sh", "-c", f"ps aux | grep -v grep | grep {base_command} | wc -l"],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.return_code == 0:
+                    process_count = int(result.stdout.strip())
+                    if process_count == 0:
+                        # Process not found, command completed
+                        logger.info(f"{base_command} process completed for session {session_id}")
+                        break
+                else:
+                    logger.warning(f"Could not check {base_command} process status, continuing monitoring")
+                    
+                # Process still running or check failed, wait and check again
+                await asyncio.sleep(check_interval)
+                elapsed_time += check_interval
+                
+            except Exception as e:
+                logger.warning(f"Error monitoring {base_command} process: {e}")
+                # If we can't monitor, wait a reasonable time and break
+                await asyncio.sleep(30)
+                break
+        
+        if elapsed_time >= max_wait_time:
+            logger.warning(f"{base_command} process monitoring timed out after {max_wait_time}s")
+        
+        logger.info(f"Finished monitoring {base_command} process for session {session_id}")
+    
     async def _send_system_message(self, session_id: str, message: str):
         """Send a system message to the terminal"""
         terminal_session = self.active_sessions.get(session_id)

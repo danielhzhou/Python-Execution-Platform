@@ -39,6 +39,8 @@ class WebSocketManager:
         self.session_connections: Dict[str, Set[WebSocket]] = {}
         # session_id -> cleanup task for delayed terminal session cleanup
         self.cleanup_tasks: Dict[str, asyncio.Task] = {}
+        # session_id -> command buffer for accumulating input
+        self.command_buffers: Dict[str, str] = {}
         
     async def connect(self, websocket: WebSocket, session_id: str):
         """Handle WebSocket connection"""
@@ -113,6 +115,9 @@ class WebSocketManager:
             # Check if session was reconnected during the delay
             if session_id not in self.session_connections:
                 await terminal_service.close_terminal_session(session_id)
+                # Clean up command buffer
+                if session_id in self.command_buffers:
+                    del self.command_buffers[session_id]
                 logger.info(f"Terminal session {session_id} closed after grace period")
             else:
                 logger.info(f"Terminal session {session_id} was reconnected, cleanup cancelled")
@@ -188,12 +193,35 @@ class WebSocketManager:
             })
             
     async def _handle_terminal_input(self, session_id: str, input_data: str):
-        """Handle terminal input from WebSocket"""
+        """Handle terminal input from WebSocket with command buffering for network detection"""
         try:
             logger.info(f"Sending input to terminal {session_id}: {repr(input_data)}")
             
-            # Send input directly to terminal service
+            # ALWAYS send input to terminal first for immediate response and echoing
             success = await terminal_service.send_input(session_id, input_data)
+            
+            # Initialize buffer for this session if not exists
+            if session_id not in self.command_buffers:
+                self.command_buffers[session_id] = ""
+            
+            # Handle command buffering for network detection
+            if input_data in ['\r', '\n', '\r\n']:
+                # We have a complete command
+                command = self.command_buffers[session_id].strip()
+                
+                if command:  # Only process non-empty commands
+                    logger.info(f"Complete command detected for {session_id}: {repr(command)}")
+                    
+                    # Network commands now work by default with PyPI network access
+                    logger.info(f"Command executed: {command}")
+                
+                # Clear the buffer after processing the command
+                self.command_buffers[session_id] = ""
+                
+            else:
+                # Accumulate input into buffer (but input was already sent above)
+                self.command_buffers[session_id] += input_data
+            
             if not success:
                 logger.error(f"Failed to send input to terminal {session_id}")
                 await self._broadcast_to_session(session_id, {
@@ -208,6 +236,7 @@ class WebSocketManager:
                 "data": {"message": "Terminal input error"}
             })
             
+    # Network handling methods removed - containers now have PyPI access by default
     async def _broadcast_to_session(self, session_id: str, message: dict):
         """Broadcast a message to all WebSockets connected to a session"""
         if session_id not in self.session_connections:

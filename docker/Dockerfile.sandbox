@@ -36,11 +36,20 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && npm --version \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user with home directory
+# Create non-root user with home directory first
 RUN groupadd -r pyuser && useradd -r -g pyuser -u 1000 -m pyuser
 
-# Install Python packages that are commonly needed
-RUN pip install --no-cache-dir \
+# Create workspace directory and set permissions
+RUN mkdir -p /workspace && chown pyuser:pyuser /workspace
+
+# Set working directory
+WORKDIR /workspace
+
+# Switch to non-root user BEFORE installing Python packages
+USER pyuser
+
+# Install Python packages as the non-root user
+RUN pip install --user --no-cache-dir \
     pandas==2.1.4 \
     scipy==1.11.4 \
     numpy==1.25.2 \
@@ -59,14 +68,8 @@ RUN pip install --no-cache-dir \
     sqlalchemy==2.0.25 \
     pydantic==2.5.3
 
-# Create workspace directory and set permissions
-RUN mkdir -p /workspace && chown pyuser:pyuser /workspace
-
-# Set working directory
-WORKDIR /workspace
-
-# Switch to non-root user
-USER pyuser
+# Add user's local bin to PATH for pip-installed executables
+ENV PATH="/home/pyuser/.local/bin:$PATH"
 
 # Set up Node.js environment for user
 RUN mkdir -p /home/pyuser/.npm-global \
@@ -80,7 +83,7 @@ RUN echo 'echo "🐍 Python + Node.js Development Environment Ready!"' >> /home/
     echo 'echo "📚 Pre-installed: pandas, numpy, matplotlib, scikit-learn, flask, fastapi"' >> /home/pyuser/.bashrc && \
     echo 'echo "🛠️  Available: python, pip, node, npm, yarn, git, nano, vim, curl, wget"' >> /home/pyuser/.bashrc && \
     echo 'echo "📁 Working directory: /workspace"' >> /home/pyuser/.bashrc && \
-    echo 'echo "💡 Network access auto-enabled for: pip install, npm install, yarn install"' >> /home/pyuser/.bashrc && \
+    echo 'echo "🌐 Package installation enabled: pip, npm, yarn, git clone, conda"' >> /home/pyuser/.bashrc && \
     echo 'echo ""' >> /home/pyuser/.bashrc
 
 # Default command

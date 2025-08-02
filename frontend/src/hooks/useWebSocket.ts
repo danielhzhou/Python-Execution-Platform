@@ -42,8 +42,8 @@ export function useWebSocket() {
       
       // Set up event handlers
       wsRef.current.on('connection', () => {
-        console.log('WebSocket connected successfully');
-        // Don't set connected=true here, wait for terminal session confirmation
+        console.log('✅ WebSocket raw connection established');
+        // Don't set connected=true here, wait for terminal session confirmation or first output
       });
 
       wsRef.current.on('disconnection', () => {
@@ -55,6 +55,14 @@ export function useWebSocket() {
       wsRef.current.on('terminal_output', (message: WebSocketMessage) => {
         console.log('📥 Received terminal_output:', message);
         if (message.type === 'terminal_output' && message.data) {
+          // If we receive terminal output but aren't marked as connected yet,
+          // this means the terminal session is working - set connected=true
+          const currentState = useTerminalStore.getState();
+          if (!currentState.isConnected) {
+            console.log('🔄 Setting connected=true due to terminal_output (fallback)');
+            setConnected(true);
+          }
+          
           // Write directly to xterm terminal if available
           if (terminalRef.current) {
             try {
@@ -74,9 +82,13 @@ export function useWebSocket() {
       // Handle connection confirmation
       wsRef.current.on('connected', (message: WebSocketMessage) => {
         if (message.type === 'connected') {
-          console.log('Terminal connection confirmed:', message.data?.message);
-          console.log('Terminal ref available:', !!terminalRef.current);
-          setConnected(true); // Set connected=true when terminal session is ready
+          console.log('🎉 Terminal session confirmed:', message.data?.message);
+          console.log('🔍 Terminal ref available:', !!terminalRef.current);
+          
+          // Set connected=true when terminal session is confirmed
+          setConnected(true);
+          console.log('✅ Connection state set to true via connected message');
+          
           if (terminalRef.current) {
             try {
               // Don't clear - just append connection message
@@ -104,7 +116,7 @@ export function useWebSocket() {
               console.error('❌ Error writing welcome message:', error);
             }
           } else {
-            console.error('❌ Terminal ref not available when trying to show welcome');
+            console.warn('⚠️ Terminal ref not available when trying to show welcome');
           }
         }
       });
@@ -151,11 +163,14 @@ export function useWebSocket() {
     };
   }, [disconnect]);
 
+  // Get connection state from terminal store (which is set by 'connected' message)
+  const { isConnected: terminalStoreConnected } = useTerminalStore();
+  
   return {
     connect,
     disconnect,
     sendCommand,
     setTerminalRef,
-    isConnected: wsRef.current?.isConnected || false
+    isConnected: terminalStoreConnected // Use terminal store state for consistency
   };
 } 

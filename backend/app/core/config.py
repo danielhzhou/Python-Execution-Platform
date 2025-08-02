@@ -29,9 +29,25 @@ class Settings(BaseSettings):
     CONTAINER_TIMEOUT_SECONDS: int = 1800  # 30 minutes
     CONTAINER_CLEANUP_INTERVAL: int = 300  # 5 minutes
     
-    # Network Security
-    PYPI_NETWORK_NAME: str = "pypi-net"
-    ALLOWED_DOMAINS: List[str] = ["pypi.org", "files.pythonhosted.org"]
+    # Network Security - Package Installation Network
+    PACKAGE_NETWORK_NAME: str = "package-install-net"
+    ALLOWED_DOMAINS: List[str] = [
+        # Python Package Index
+        "pypi.org", "files.pythonhosted.org", "pypi.python.org",
+        # Conda/Anaconda
+        "conda.anaconda.org", "repo.anaconda.com", "conda-forge.org",
+        # Node.js/npm
+        "registry.npmjs.org", "registry.yarnpkg.com", "npm.pkg.github.com",
+        # Git repositories
+        "github.com", "api.github.com", "codeload.github.com",
+        "gitlab.com", "bitbucket.org",
+        # Common CDNs and mirrors
+        "cdn.jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com",
+        # Docker Hub (for pulling images in some tools)
+        "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com",
+        # Other common package sources
+        "download.pytorch.org", "storage.googleapis.com"
+    ]
     NETWORK_TIMEOUT_SECONDS: int = 30
     
     # Terminal Configuration

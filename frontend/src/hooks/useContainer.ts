@@ -178,7 +178,9 @@ export function useContainer() {
         updateContainer(containerId, { status: 'stopped' });
         
         // If this is the current container, clear it
+        // But only if we explicitly stopped it, not if it was stopped by backend
         if (currentContainer?.id === containerId) {
+          console.log('🛑 Clearing current container due to explicit stop');
           setCurrentContainer(null);
           setContainerId(null);
         }
@@ -286,6 +288,7 @@ export function useContainer() {
         }));
         
         console.log(`✅ Loaded ${containers.length} containers`);
+        console.log('🔍 DEBUG: Container details:', containers.map(c => ({ id: c.id, status: c.status })));
         
         // Update cache
         containerCache.set(cacheKey, { data: containers, timestamp: now });
@@ -297,8 +300,25 @@ export function useContainer() {
           const runningContainer = containers.find(c => c.status === 'running');
           if (runningContainer) {
             console.log('🎯 Setting current container:', runningContainer.id);
+            console.log('🔍 DEBUG: Current container before setting:', currentContainer);
             setCurrentContainer(runningContainer);
             setContainerId(runningContainer.id);
+            console.log('🔍 DEBUG: Current container after setting should be:', runningContainer.id);
+          } else {
+            console.log('🔍 DEBUG: No running containers found in:', containers.map(c => ({ id: c.id, status: c.status })));
+          }
+        } else {
+          console.log('🔍 DEBUG: Container state - containers.length:', containers.length, 'currentContainer:', currentContainer?.id);
+        }
+        
+        // If current container exists but backend shows different status, 
+        // don't clear it immediately - let WebSocket connection determine actual state
+        if (currentContainer && containers.length > 0) {
+          const backendContainer = containers.find(c => c.id === currentContainer.id);
+          if (backendContainer && backendContainer.status !== currentContainer.status) {
+            console.log(`📊 Container status mismatch: frontend=${currentContainer.status}, backend=${backendContainer.status}`);
+            // Update status but keep container active if WebSocket is connected
+            updateContainer(currentContainer.id, { status: backendContainer.status });
           }
         }
         

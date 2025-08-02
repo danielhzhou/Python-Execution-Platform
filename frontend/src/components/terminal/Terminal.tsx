@@ -165,7 +165,9 @@ export function Terminal({ className }: TerminalProps) {
           // Handle terminal input with error boundaries
           terminal.onData((data) => {
             try {
-              console.log('🎹 Terminal input:', data, 'Store Connected:', isConnected);
+              console.log('🎹 Terminal input:', data, 'WebSocket Connected:', isConnected, 'Current Container:', currentContainer?.id);
+              console.log('🔍 DEBUG: Terminal state - wsSendCommand:', !!wsSendCommand, 'isConnected:', isConnected, 'currentContainer:', !!currentContainer);
+              console.log('🔍 DEBUG: Connection sources - terminalStore.isConnected:', isConnected);
               
               // Handle Ctrl+L to clear terminal (traditional shell behavior)
               if (data === '\f' || data === '\x0c') { // Ctrl+L
@@ -179,16 +181,21 @@ export function Terminal({ className }: TerminalProps) {
                 return;
               }
               
-              // Always try to send to WebSocket if we have a current container
-              // The WebSocket service will handle connection state
-              if (currentContainer && wsSendCommand) {
-                console.log('📤 Sending to WebSocket (container exists)');
+              // Send to WebSocket if connection is available
+              // Prioritize WebSocket connection state over container store state
+              if (wsSendCommand && isConnected) {
+                console.log('📤 Sending to WebSocket (connection active)');
+                wsSendCommand(data);
+              } else if (wsSendCommand && currentContainer) {
+                // Fallback: try to send if we have container info but connection might be reconnecting
+                console.log('📤 Sending to WebSocket (container exists, connection uncertain)');
                 wsSendCommand(data);
               } else {
-                // If no container, show error
-                console.log('❌ No container available, showing error');
+                // Only show error if we truly have no way to send
+                console.log('❌ No WebSocket connection available');
+                console.log('🔍 DEBUG: Error state - wsSendCommand:', !!wsSendCommand, 'isConnected:', isConnected, 'currentContainer:', !!currentContainer);
                 if (terminal) {
-                  terminal.write('\r\n\x1b[31m❌ No container available\x1b[0m\r\n');
+                  terminal.write('\r\n\x1b[31m❌ No connection available\x1b[0m\r\n');
                 }
               }
               

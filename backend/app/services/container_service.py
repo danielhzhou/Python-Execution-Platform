@@ -175,7 +175,7 @@ class ContainerService:
                 user="1000:1000",  # Run as non-root user
                 memory=settings.CONTAINER_MEMORY_LIMIT,
                 cpus=settings.CONTAINER_CPU_LIMIT,
-                networks="none",  # Start with no network access
+                networks=settings.PACKAGE_NETWORK_NAME,  # Connect to package installation network
                 command=["/bin/bash", "--login"]  # Start with login shell for better Python environment
             )
             
@@ -391,8 +391,7 @@ Happy coding! 🐍
             try:
                 logger.info(f"Terminating container {container.name}")
                 
-                # Disconnect from networks
-                await self._disconnect_from_pypi_network(container)
+                # No need to disconnect from networks - container will be removed
                 
                 # Stop and remove container
                 container.stop(time=5)
@@ -419,54 +418,9 @@ Happy coding! 🐍
         
         return True
             
-    async def enable_network_access(self, session_id: str) -> bool:
-        """Enable network access for package installation"""
-        session = await db_service.get_terminal_session(session_id)
-        if not session:
-            return False
+    # Network access methods removed - containers now have PyPI access by default
             
-        # Look up container by session ID (how containers are stored)
-        # First try with the database session ID (how containers are actually stored)
-        container = None
-        if hasattr(session, 'id'):
-            container = self.active_containers.get(session.id)
-        
-        # Fallback to session_id parameter if not found
-        if not container:
-            container = self.active_containers.get(session_id)
-        
-        if not container:
-            return False
-            
-        try:
-            # Connect to PyPI network
-            self.docker.network.connect(settings.PYPI_NETWORK_NAME, container)
-            logger.info(f"Network access enabled for container {container.name}")
-            return True
-        except DockerException as e:
-            logger.error(f"Failed to enable network access: {e}")
-            return False
-            
-    async def disable_network_access(self, session_id: str) -> bool:
-        """Disable network access after package installation"""
-        session = await db_service.get_terminal_session(session_id)
-        if not session:
-            return False
-            
-        # Look up container by session ID (how containers are stored)
-        # First try with the database session ID (how containers are actually stored)
-        container = None
-        if hasattr(session, 'id'):
-            container = self.active_containers.get(session.id)
-        
-        # Fallback to session_id parameter if not found
-        if not container:
-            container = self.active_containers.get(session_id)
-        
-        if not container:
-            return False
-            
-        return await self._disconnect_from_pypi_network(container)
+
         
     async def _get_user_active_container(self, user_id: str) -> Optional[TerminalSession]:
         """Check if user has an active container"""
@@ -487,40 +441,26 @@ Happy coding! 🐍
                 logger.error(f"Failed to create file {file_path}: {e}")
                 
     async def _ensure_network_exists(self):
-        """Ensure the PyPI network exists"""
+        """Ensure the package installation network exists"""
         try:
             # Check if network exists
             networks = self.docker.network.list()
-            pypi_network_exists = any(net.name == settings.PYPI_NETWORK_NAME for net in networks)
+            network_exists = any(net.name == settings.PACKAGE_NETWORK_NAME for net in networks)
             
-            if not pypi_network_exists:
-                logger.info(f"Creating PyPI network: {settings.PYPI_NETWORK_NAME}")
+            if not network_exists:
+                logger.info(f"Creating package installation network: {settings.PACKAGE_NETWORK_NAME}")
+                logger.info(f"Allowed domains: {', '.join(settings.ALLOWED_DOMAINS[:5])}... ({len(settings.ALLOWED_DOMAINS)} total)")
                 self.docker.network.create(
-                    name=settings.PYPI_NETWORK_NAME,
+                    name=settings.PACKAGE_NETWORK_NAME,
                     driver="bridge",
-                    internal=False  # Allow external access
+                    internal=False  # Allow external access to package repositories
                 )
         except DockerException as e:
-            logger.error(f"Failed to ensure PyPI network exists: {e}")
+            logger.error(f"Failed to ensure package installation network exists: {e}")
             
-    async def _disconnect_from_pypi_network(self, container: Container) -> bool:
-        """Disconnect container from PyPI network"""
-        try:
-            self.docker.network.disconnect(settings.PYPI_NETWORK_NAME, container)
-            logger.info(f"Network access disabled for container {container.name}")
-            return True
-        except DockerException as e:
-            logger.error(f"Failed to disable network access: {e}")
-            return False
+
             
-    def _is_network_enabled(self, container: Container) -> bool:
-        """Check if container has network access"""
-        try:
-            container.reload()
-            networks = container.network_settings.networks
-            return settings.PYPI_NETWORK_NAME in networks
-        except:
-            return False
+
             
     def _calculate_cpu_usage(self, stats: Dict) -> Optional[float]:
         """Calculate CPU usage percentage from container stats"""
