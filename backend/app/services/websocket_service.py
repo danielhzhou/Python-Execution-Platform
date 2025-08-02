@@ -37,6 +37,8 @@ class WebSocketManager:
         self.active_connections: Dict[str, WebSocket] = {}
         # session_id -> set of connected websockets (for multiple clients)
         self.session_connections: Dict[str, Set[WebSocket]] = {}
+        # session_id -> cleanup task for delayed terminal session cleanup
+        self.cleanup_tasks: Dict[str, asyncio.Task] = {}
         
     async def connect(self, websocket: WebSocket, session_id: str):
         """Handle WebSocket connection"""
@@ -44,6 +46,12 @@ class WebSocketManager:
             # Accept the WebSocket connection first
             await websocket.accept()
             logger.info(f"🔌 WebSocket accepted for session {session_id}")
+            
+            # Cancel any pending cleanup task for this session
+            if session_id in self.cleanup_tasks:
+                self.cleanup_tasks[session_id].cancel()
+                del self.cleanup_tasks[session_id]
+                logger.info(f"🔄 Cancelled cleanup task for reconnecting session {session_id}")
             
             # Store connection
             ws_id = id(websocket)
@@ -85,13 +93,36 @@ class WebSocketManager:
         if session_id in self.session_connections:
             self.session_connections[session_id].discard(websocket)
             
-            # If no more connections for this session, clean up terminal
+            # If no more connections for this session, schedule delayed cleanup
             if not self.session_connections[session_id]:
                 del self.session_connections[session_id]
-                await terminal_service.close_terminal_session(session_id)
-                logger.info(f"Terminal session {session_id} closed due to no active connections")
+                
+                # Schedule delayed cleanup (30 seconds) to allow for reconnections
+                cleanup_task = asyncio.create_task(self._delayed_cleanup(session_id))
+                self.cleanup_tasks[session_id] = cleanup_task
+                logger.info(f"Scheduled delayed cleanup for session {session_id} (30s grace period)")
         
         logger.info(f"WebSocket disconnected for session {session_id}")
+        
+    async def _delayed_cleanup(self, session_id: str):
+        """Delayed cleanup of terminal session to allow for reconnections"""
+        try:
+            # Wait for 30 seconds to allow reconnection
+            await asyncio.sleep(30)
+            
+            # Check if session was reconnected during the delay
+            if session_id not in self.session_connections:
+                await terminal_service.close_terminal_session(session_id)
+                logger.info(f"Terminal session {session_id} closed after grace period")
+            else:
+                logger.info(f"Terminal session {session_id} was reconnected, cleanup cancelled")
+                
+        except asyncio.CancelledError:
+            logger.info(f"Cleanup task cancelled for session {session_id} (reconnected)")
+        finally:
+            # Clean up the task reference
+            if session_id in self.cleanup_tasks:
+                del self.cleanup_tasks[session_id]
         
     async def handle_message(self, websocket: WebSocket, session_id: str, message: str):
         """Handle incoming WebSocket message"""
