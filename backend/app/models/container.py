@@ -19,6 +19,13 @@ class ContainerStatus(str, Enum):
     TERMINATED = "terminated"
 
 
+class UserRole(str, Enum):
+    """User role enumeration"""
+    SUBMITTER = "submitter"
+    REVIEWER = "reviewer"
+    ADMIN = "admin"
+
+
 class SubmissionStatus(str, Enum):
     """Submission status enumeration"""
     DRAFT = "draft"
@@ -39,13 +46,15 @@ class User(SQLModel, table=True):
     email: str = Field(index=True)
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    role: str = Field(default=UserRole.SUBMITTER.value, sa_column=Column(String, index=True))
     created_at: datetime = Field(default_factory=datetime.utcnow, sa_column=Column(DateTime(timezone=True)))
     updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column=Column(DateTime(timezone=True)))
     
     # Relationships
     projects: List["Project"] = Relationship(back_populates="owner")
     terminal_sessions: List["TerminalSession"] = Relationship(back_populates="user")
-    # submissions: List["Submission"] = Relationship(back_populates="user")  # Temporarily disabled due to foreign key ambiguity
+    submissions: List["Submission"] = Relationship(back_populates="submitter")
+    reviews: List["SubmissionReview"] = Relationship(back_populates="reviewer")
 
 
 class Project(SQLModel, table=True):
@@ -134,11 +143,12 @@ class Submission(SQLModel, table=True):
     __tablename__ = "submissions"
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
-    owner_id: str = Field(foreign_key="users.id", index=True)
+    submitter_id: str = Field(foreign_key="users.id", index=True)
     project_id: str = Field(foreign_key="projects.id", index=True)
     title: str
     description: Optional[str] = Field(sa_column=Column(Text))
     status: str = Field(default=SubmissionStatus.DRAFT.value, sa_column=Column(String, index=True))
+    storage_path: Optional[str] = None  # Path in Supabase storage (submissions bucket)
     submitted_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
     reviewed_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
     reviewer_id: Optional[str] = Field(foreign_key="users.id", default=None)
@@ -146,7 +156,7 @@ class Submission(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column=Column(DateTime(timezone=True)))
     
     # Relationships
-    # user: User = Relationship(back_populates="submissions")  # Temporarily disabled due to foreign key ambiguity
+    submitter: User = Relationship(back_populates="submissions")
     project: Project = Relationship(back_populates="submissions")
     files: List["SubmissionFile"] = Relationship(back_populates="submission")
     reviews: List["SubmissionReview"] = Relationship(back_populates="submission")
@@ -161,6 +171,9 @@ class SubmissionFile(SQLModel, table=True):
     file_path: str
     file_name: str
     content: str = Field(sa_column=Column(Text))
+    storage_path: Optional[str] = None  # Path in Supabase storage for the file
+    file_size: Optional[int] = None
+    mime_type: Optional[str] = None
     diff: Optional[str] = Field(sa_column=Column(Text))  # Git-style diff
     created_at: datetime = Field(default_factory=datetime.utcnow, sa_column=Column(DateTime(timezone=True)))
     
@@ -175,6 +188,7 @@ class SubmissionReview(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     submission_id: str = Field(foreign_key="submissions.id", index=True)
     reviewer_id: str = Field(foreign_key="users.id", index=True)
+    status: str = Field(sa_column=Column(String))  # approved, rejected, needs_changes
     comment: str = Field(sa_column=Column(Text))
     file_path: Optional[str] = None  # Specific file being commented on
     line_number: Optional[int] = None  # Specific line being commented on
@@ -184,6 +198,7 @@ class SubmissionReview(SQLModel, table=True):
     
     # Relationships
     submission: Submission = Relationship(back_populates="reviews")
+    reviewer: User = Relationship(back_populates="reviews")
 
 
 # API Response Models (Pydantic BaseModel)

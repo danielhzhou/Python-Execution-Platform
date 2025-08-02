@@ -10,12 +10,14 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL,
     full_name TEXT,
     avatar_url TEXT,
+    role TEXT NOT NULL DEFAULT 'submitter',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Create index on email for faster lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 -- Projects table
 CREATE TABLE IF NOT EXISTS projects (
@@ -93,22 +95,25 @@ CREATE INDEX IF NOT EXISTS idx_terminal_commands_executed_at ON terminal_command
 -- Submissions table
 CREATE TABLE IF NOT EXISTS submissions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    submitter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     description TEXT,
     status TEXT NOT NULL DEFAULT 'draft',
+    storage_path TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     submitted_at TIMESTAMPTZ,
-    reviewed_at TIMESTAMPTZ
+    reviewed_at TIMESTAMPTZ,
+    reviewer_id UUID REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- Create indexes for submissions
-CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON submissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_submitter_id ON submissions(submitter_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_project_id ON submissions(project_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
 CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at ON submissions(submitted_at);
+CREATE INDEX IF NOT EXISTS idx_submissions_reviewer_id ON submissions(reviewer_id);
 
 -- Submission files table
 CREATE TABLE IF NOT EXISTS submission_files (
@@ -117,7 +122,9 @@ CREATE TABLE IF NOT EXISTS submission_files (
     file_path TEXT NOT NULL,
     file_name TEXT NOT NULL,
     content TEXT,
-    original_content TEXT,
+    storage_path TEXT,
+    file_size INTEGER,
+    mime_type TEXT,
     diff_content TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -132,9 +139,13 @@ CREATE TABLE IF NOT EXISTS submission_reviews (
     submission_id UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
     reviewer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     status TEXT NOT NULL, -- 'approved', 'rejected', 'needs_changes'
-    comments TEXT,
+    comment TEXT,
+    file_path TEXT,
+    line_number INTEGER,
+    is_resolved BOOLEAN DEFAULT FALSE,
     reviewed_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Create indexes for submission_reviews

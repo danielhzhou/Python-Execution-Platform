@@ -474,6 +474,137 @@ class DatabaseService:
             
             session.commit()
             return count
+    
+    # Submission methods
+    async def create_submission(
+        self, 
+        submitter_id: str, 
+        project_id: str, 
+        title: str, 
+        description: Optional[str] = None
+    ) -> Submission:
+        """Create a new submission"""
+        with get_db_session() as session:
+            submission = Submission(
+                submitter_id=submitter_id,
+                project_id=project_id,
+                title=title,
+                description=description
+            )
+            session.add(submission)
+            session.commit()
+            session.refresh(submission)
+            return submission
+    
+    async def get_submission(self, submission_id: str) -> Optional[Submission]:
+        """Get a submission by ID"""
+        with get_db_session() as session:
+            return session.query(Submission).filter(Submission.id == submission_id).first()
+    
+    async def get_submissions_by_submitter(self, submitter_id: str) -> List[Submission]:
+        """Get all submissions by a submitter"""
+        with get_db_session() as session:
+            return session.query(Submission).filter(Submission.submitter_id == submitter_id).all()
+    
+    async def get_submissions_by_status(self, status: str) -> List[Submission]:
+        """Get all submissions with a specific status"""
+        with get_db_session() as session:
+            return session.query(Submission).filter(Submission.status == status).all()
+    
+    async def update_submission(
+        self, 
+        submission_id: str, 
+        **kwargs
+    ) -> Optional[Submission]:
+        """Update a submission"""
+        with get_db_session() as session:
+            submission = session.query(Submission).filter(Submission.id == submission_id).first()
+            if submission:
+                for key, value in kwargs.items():
+                    if hasattr(submission, key) and value is not None:
+                        setattr(submission, key, value)
+                submission.updated_at = datetime.utcnow()
+                session.commit()
+                session.refresh(submission)
+            return submission
+    
+    async def create_submission_file(
+        self, 
+        submission_id: str, 
+        file_path: str, 
+        file_name: str, 
+        content: str,
+        storage_path: Optional[str] = None,
+        file_size: Optional[int] = None,
+        mime_type: Optional[str] = None,
+        diff: Optional[str] = None
+    ) -> SubmissionFile:
+        """Create a submission file record"""
+        with get_db_session() as session:
+            submission_file = SubmissionFile(
+                submission_id=submission_id,
+                file_path=file_path,
+                file_name=file_name,
+                content=content,
+                storage_path=storage_path,
+                file_size=file_size,
+                mime_type=mime_type,
+                diff=diff
+            )
+            session.add(submission_file)
+            session.commit()
+            session.refresh(submission_file)
+            return submission_file
+    
+    async def get_submission_files(self, submission_id: str) -> List[SubmissionFile]:
+        """Get all files for a submission"""
+        with get_db_session() as session:
+            return session.query(SubmissionFile).filter(SubmissionFile.submission_id == submission_id).all()
+    
+    async def create_submission_review(
+        self, 
+        submission_id: str, 
+        reviewer_id: str, 
+        status: str, 
+        comment: str,
+        file_path: Optional[str] = None,
+        line_number: Optional[int] = None
+    ) -> SubmissionReview:
+        """Create a submission review"""
+        with get_db_session() as session:
+            review = SubmissionReview(
+                submission_id=submission_id,
+                reviewer_id=reviewer_id,
+                status=status,
+                comment=comment,
+                file_path=file_path,
+                line_number=line_number
+            )
+            session.add(review)
+            session.commit()
+            session.refresh(review)
+            return review
+    
+    async def get_submission_reviews(self, submission_id: str) -> List[SubmissionReview]:
+        """Get all reviews for a submission"""
+        with get_db_session() as session:
+            return session.query(SubmissionReview).filter(SubmissionReview.submission_id == submission_id).all()
+    
+    async def get_user(self, user_id: str) -> Optional[User]:
+        """Get a user by ID"""
+        with get_db_session() as session:
+            return session.query(User).filter(User.id == user_id).first()
+    
+    async def update_user_role(self, user_id: str, role: str) -> Optional[User]:
+        """Update a user's role"""
+        with get_db_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if user:
+                user.role = role
+                user.updated_at = datetime.utcnow()
+                session.commit()
+                session.refresh(user)
+            return user
 
 
 # Global database service instance
