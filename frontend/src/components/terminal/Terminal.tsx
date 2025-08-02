@@ -10,9 +10,10 @@ import 'xterm/css/xterm.css';
 
 interface TerminalProps {
   className?: string;
+  onSendCommandReady?: (sendCommand: (command: string) => void) => void;
 }
 
-export function Terminal({ className }: TerminalProps) {
+export function Terminal({ className, onSendCommandReady }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -251,6 +252,14 @@ export function Terminal({ className }: TerminalProps) {
       connect();
     }
   }, [currentContainer, isConnected, connect, isTerminalInitialized]);
+
+  // Expose sendCommand function to parent component when terminal is connected
+  useEffect(() => {
+    if (onSendCommandReady && wsSendCommand && isConnected) {
+      console.log('🔗 Exposing sendCommand function to parent - terminal is connected');
+      onSendCommandReady(wsSendCommand);
+    }
+  }, [onSendCommandReady, wsSendCommand, isConnected]);
 
   // Handle window resize to fit terminal
   useEffect(() => {

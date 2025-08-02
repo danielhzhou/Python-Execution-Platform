@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Header } from './components/layout/Header';
 import { FileTree } from './components/layout/FileTree';
 import { ResizablePanel } from './components/layout/ResizablePanel';
@@ -14,10 +14,11 @@ import { ToastProvider } from './components/common/ToastProvider';
 import { ErrorBoundary, MonacoErrorBoundary, TerminalErrorBoundary } from './components/common/ErrorBoundary';
 import { useAppStore } from './stores/appStore';
 import { useContainer } from './hooks/useContainer';
-import { useWebSocket } from './hooks/useWebSocket';
+
 import { useEditorStore } from './stores/editorStore';
 import { useTerminalStore } from './stores/terminalStore';
 import { useAutoSave } from './hooks/useAutoSave';
+
 import './App.css';
 
 function App() {
@@ -36,17 +37,22 @@ function App() {
     isInitialized
   } = useContainer();
 
-  const { sendCommand } = useWebSocket();
   const { content } = useEditorStore();
   const { isConnected } = useTerminalStore();
   const { manualSave } = useAutoSave();
+  
+  // Store the sendCommand function from Terminal component
+  const [terminalSendCommand, setTerminalSendCommand] = useState<((command: string) => void) | null>(null);
+  
+  // Callback to receive sendCommand from Terminal
+  const handleSendCommandReady = useCallback((sendCommand: (command: string) => void) => {
+    console.log('🎯 App received sendCommand function from Terminal');
+    setTerminalSendCommand(() => sendCommand);
+  }, []);
 
   const [showSubmissionDialog, setShowSubmissionDialog] = useState(false);
   const [hasAttemptedContainerCreation, setHasAttemptedContainerCreation] = useState(false);
-  const [activeTerminalTab, setActiveTerminalTab] = useState<'terminal' | 'output'>('terminal');
   const [isExecuting, setIsExecuting] = useState(false);
-  const [outputContent, setOutputContent] = useState<string>('');
-  const executeCodeRef = useRef<(() => Promise<void>) | null>(null);
 
   // Check auth status only once on mount
   useEffect(() => {
@@ -82,8 +88,8 @@ function App() {
     }
   }, [error, setError]);
 
-  // Custom execution function that captures output for the Output tab
-  const executeCodeWithOutput = async () => {
+  // Handle Run button click - execute code in the integrated terminal
+  const handleRunCode = async () => {
     if (!currentContainer) {
       setError('No active container. Please wait for container to be ready.');
       return;
@@ -94,134 +100,70 @@ function App() {
       return;
     }
 
+    if (!terminalSendCommand) {
+      console.log('🔍 DEBUG: terminalSendCommand not available:', {
+        terminalSendCommand: !!terminalSendCommand,
+        isConnected,
+        currentContainer: !!currentContainer
+      });
+      setError('Terminal not ready. Please wait for terminal to initialize.');
+      return;
+    }
+
     if (!content.trim()) {
       setError('No code to execute.');
       return;
     }
 
+    if (isExecuting) {
+      return; // Prevent multiple simultaneous executions
+    }
+
     setIsExecuting(true);
-    setOutputContent(''); // Clear previous output
-    setActiveTerminalTab('output'); // Switch to output tab
     setError(null);
 
     try {
       // Use current file if available, otherwise create a temporary file
       let filename = currentFile?.path || `/workspace/script_${Date.now()}.py`;
       
-      // Save file silently if needed
+      // Clear terminal first for clean output
+      terminalSendCommand('\x0c'); // Clear screen
+      
+      // If using current file, save it first
       if (currentFile) {
+        console.log('🔄 Saving file before execution:', {
+          path: currentFile.path,
+          contentLength: content.length
+        });
+        
         try {
           await manualSave();
+          console.log('✅ File saved successfully before execution');
+          
+          // Add a small delay to ensure the save operation completes
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
           filename = currentFile.path;
         } catch (saveError) {
           console.error('❌ Failed to save file before execution:', saveError);
-          setOutputContent(prev => prev + `❌ Failed to save file: ${saveError}\n`);
+          setError('Failed to save file before execution');
           return;
         }
       } else {
         // Create temporary file for execution
         filename = `/workspace/script_${Date.now()}.py`;
+        console.log('📝 Creating temporary file for execution:', filename);
+        terminalSendCommand(`cat > ${filename} << 'EOF'\n${content}\nEOF\n`);
       }
       
-      // Execute the Python script and simulate output for now
-      const executionPromise = new Promise<void>((resolve) => {
-        // For demonstration, let's create a simple example output
-        // In a real implementation, you'd capture the actual terminal output
-        
-        // Execute the script (remove the "Executing" message)
-        
-        setTimeout(() => {
-          // Create the target file if it doesn't exist
-          if (!currentFile) {
-            sendCommand(`cat > ${filename} << 'EOF'\n${content}\nEOF\n`);
-          }
-          
-          // Execute the Python file
-          sendCommand(`python3 ${filename}\n`);
-          
-          // Parse and simulate output based on code content
-          if (content.includes('print')) {
-            const lines = content.split('\n');
-            let delay = 100;
-            
-            lines.forEach((line) => {
-              const trimmedLine = line.trim();
-              if (trimmedLine.startsWith('print(')) {
-                setTimeout(() => {
-                  // Handle different types of print statements
-                  if (trimmedLine.includes('f"') || trimmedLine.includes("f'")) {
-                    // Handle f-strings - simulate the actual output
-                    const fStringMatch = trimmedLine.match(/f(['"])(.*?)\1/);
-                    if (fStringMatch) {
-                      let output = fStringMatch[2];
-                      // Replace common f-string patterns with simulated values
-                      output = output.replace(/\{numbers\}/g, '[1, 2, 3, 4, 5]');
-                      output = output.replace(/\{squared\}/g, '[1, 4, 9, 16, 25]');
-                      output = output.replace(/\{.*?\}/g, '[value]'); // Generic replacement
-                      setOutputContent(prev => prev + `${output}\n`);
-                    }
-                  } else {
-                    // Handle regular string literals
-                    const match = trimmedLine.match(/print\s*\(\s*(['"])(.*?)\1\s*\)/);
-                    if (match) {
-                      setOutputContent(prev => prev + `${match[2]}\n`);
-                    } else {
-                      // Handle variables or expressions
-                      const complexMatch = trimmedLine.match(/print\s*\((.*?)\)/);
-                      if (complexMatch) {
-                        const expr = complexMatch[1].trim();
-                        if (expr.includes('"') || expr.includes("'")) {
-                          // Extract string content
-                          const stringMatch = expr.match(/(['"])(.*?)\1/);
-                          if (stringMatch) {
-                            setOutputContent(prev => prev + `${stringMatch[2]}\n`);
-                          }
-                        } else {
-                          setOutputContent(prev => prev + `${expr}\n`);
-                        }
-                      }
-                    }
-                  }
-                }, delay);
-                delay += 150;
-              }
-            });
-            
-            // Add completion message after all output
-            setTimeout(() => {
-              resolve();
-            }, delay + 200);
-            
-          } else if (content.includes('def ') || content.includes('class ') || content.includes('import ')) {
-            setTimeout(() => {
-              setOutputContent(prev => prev + `[Script executed - no output to display]\n`);
-              resolve();
-            }, 300);
-          } else {
-            setTimeout(() => {
-              setOutputContent(prev => prev + `[Script executed successfully]\n`);
-              resolve();
-            }, 300);
-          }
-          
-        }, 200);
-      });
-      
-      await executionPromise;
+      // Execute the Python file
+      terminalSendCommand(`python3 ${filename}\n`);
       
     } catch (error) {
       console.error('Code execution error:', error);
-      setOutputContent(prev => prev + `\n❌ Execution error: ${error}\n`);
       setError('Failed to execute code. Please try again.');
     } finally {
       setIsExecuting(false);
-    }
-  };
-
-  // Handle Run button click
-  const handleRunCode = async () => {
-    if (!isExecuting) {
-      await executeCodeWithOutput();
     }
   };
 
@@ -325,35 +267,16 @@ function App() {
                   {/* Code Editor */}
                   <div className="h-full bg-[#1e1e1e]">
                     <MonacoErrorBoundary>
-                      <MonacoEditor executeCodeRef={executeCodeRef} />
+                      <MonacoEditor />
                     </MonacoErrorBoundary>
                   </div>
                   
                   {/* Integrated Terminal Panel */}
                   <div className="h-full bg-[#1e1e1e] flex flex-col">
-                    {/* Terminal Tabs */}
+                    {/* Terminal Header */}
                     <div className="h-9 bg-[#2d2d30] border-t border-border/30 flex items-center px-2 flex-shrink-0">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setActiveTerminalTab('terminal')}
-                          className={`px-3 py-1 text-sm rounded-t-sm flex items-center gap-2 transition-colors ${
-                            activeTerminalTab === 'terminal'
-                              ? 'text-white bg-[#1e1e1e]'
-                              : 'text-white/70 hover:text-white hover:bg-white/10'
-                          }`}
-                        >
-                          <span>Terminal</span>
-                        </button>
-                        <button
-                          onClick={() => setActiveTerminalTab('output')}
-                          className={`px-3 py-1 text-sm rounded-t-sm cursor-pointer transition-colors ${
-                            activeTerminalTab === 'output'
-                              ? 'text-white bg-[#1e1e1e]'
-                              : 'text-white/70 hover:text-white hover:bg-white/10'
-                          }`}
-                        >
-                          <span>Output</span>
-                        </button>
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-1 text-sm text-white bg-[#1e1e1e] rounded-t-sm">Terminal</span>
                       </div>
                       <div className="ml-auto flex items-center gap-1">
                         <button className="p-1 hover:bg-white/10 rounded text-white/70 hover:text-white" title="New Terminal">
@@ -371,46 +294,9 @@ function App() {
                     
                     {/* Terminal Content */}
                     <div className="flex-1 min-h-0">
-                      {activeTerminalTab === 'terminal' ? (
-                        <TerminalErrorBoundary>
-                          <Terminal />
-                        </TerminalErrorBoundary>
-                      ) : (
-                        <div className="h-full bg-[#1e1e1e] text-white flex flex-col">
-                          {/* Output Header */}
-                          <div className="flex items-center justify-between p-3 border-b border-white/10 flex-shrink-0">
-                            <div className="text-sm text-white/70">Output</div>
-                            <button 
-                              onClick={() => setOutputContent('')}
-                              className="text-xs text-white/50 hover:text-white/80 px-2 py-1 hover:bg-white/10 rounded"
-                            >
-                              Clear
-                            </button>
-                          </div>
-                          
-                          {/* Output Content */}
-                          <div className="flex-1 overflow-auto p-4">
-                            {outputContent ? (
-                              <pre className="text-sm font-mono whitespace-pre-wrap text-green-400">
-                                {outputContent}
-                              </pre>
-                            ) : isExecuting ? (
-                              <div className="flex items-center gap-2 text-sm">
-                                <div className="w-4 h-4 border border-white/30 border-t-white rounded-full animate-spin"></div>
-                                <span>Running {currentFile?.name || 'script'}...</span>
-                              </div>
-                            ) : (
-                              <div className="text-sm text-white/60">
-                                <p>Output from your Python script will appear here when you click Run.</p>
-                                <p className="mt-2">
-                                  💡 Tip: The terminal tab shows the interactive Python shell, 
-                                  while this tab shows clean output from your script execution.
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                      <TerminalErrorBoundary>
+                        <Terminal onSendCommandReady={handleSendCommandReady} />
+                      </TerminalErrorBoundary>
                     </div>
                   </div>
                 </ResizablePanel>
