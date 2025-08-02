@@ -13,6 +13,10 @@ export class WebSocketManager {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  get currentContainerId(): string | null {
+    return this.containerId;
+  }
+
   on(event: string, handler: (message: WebSocketMessage) => void): void {
     this.eventHandlers.set(event, handler);
   }
@@ -105,13 +109,29 @@ export class WebSocketManager {
     this.reconnectAttempts++;
     console.log(`🔄 Attempting reconnection ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
     
+    // Exponential backoff with jitter
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
+    const jitter = Math.random() * 1000; // Add up to 1 second of jitter
+    
     setTimeout(() => {
       if (this.containerId) {
         this.connect(this.containerId).catch(error => {
           console.error('Reconnection failed:', error);
+          
+          // If we've exhausted all attempts, notify the user
+          if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            const handler = this.eventHandlers.get('error');
+            if (handler) {
+              handler({ 
+                type: 'error', 
+                message: 'Failed to establish stable connection after multiple attempts',
+                data: { message: 'Connection failed permanently' }
+              });
+            }
+          }
         });
       }
-    }, this.reconnectDelay * this.reconnectAttempts);
+    }, delay + jitter);
   }
 
   private startPing(): void {

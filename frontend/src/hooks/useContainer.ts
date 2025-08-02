@@ -381,6 +381,25 @@ export function useContainer() {
     }
   }, [isAuthenticated, isInitialized, loadContainers, createContainer]);
 
+  // Poll container status to detect changes and maintain connection health
+  // Temporarily disabled to debug container state issues
+  /*
+  useEffect(() => {
+    if (!isAuthenticated || !currentContainer) return;
+
+    const statusPollingInterval = setInterval(async () => {
+      try {
+        await loadContainers(true); // Force refresh
+        // Status update is handled in loadContainers
+      } catch (error) {
+        console.error('Status polling error:', error);
+      }
+    }, 15000); // Poll every 15 seconds
+
+    return () => clearInterval(statusPollingInterval);
+  }, [isAuthenticated, currentContainer, loadContainers]);
+  */
+
   return {
     currentContainer,
     containers,

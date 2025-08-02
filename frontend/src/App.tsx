@@ -72,11 +72,20 @@ function App() {
     ) {
       console.log('🚀 Auto-creating container for authenticated user...');
       setHasAttemptedContainerCreation(true);
-      createContainer().catch(err => {
-        console.error('❌ Auto-container creation failed:', err);
-        // Reset flag on failure so user can try again manually
-        setHasAttemptedContainerCreation(false);
-      });
+      
+      // Add a small delay to ensure all auth-related state is settled
+      const timer = setTimeout(async () => {
+        try {
+          await createContainer();
+          console.log('✅ Container created successfully');
+        } catch (err) {
+          console.error('❌ Auto-container creation failed:', err);
+          // Reset flag on failure so user can try again manually
+          setHasAttemptedContainerCreation(false);
+        }
+      }, 1000);
+      
+      return () => clearTimeout(timer);
     }
   }, [isAuthenticated, isInitialized, currentContainer, loading, hasAttemptedContainerCreation, createContainer]);
 
@@ -87,6 +96,19 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [error, setError]);
+
+  // Debug: Track app state during initialization
+  useEffect(() => {
+    console.log('🔍 App State Debug:', {
+      isAuthenticated,
+      loading,
+      hasContainer: !!currentContainer,
+      containerStatus: currentContainer?.status,
+      isTerminalConnected: isConnected,
+      hasAttemptedContainerCreation,
+      isContainerInitialized: isInitialized
+    });
+  }, [isAuthenticated, loading, currentContainer, isConnected, hasAttemptedContainerCreation, isInitialized]);
 
   // Handle Run button click - execute code in the integrated terminal
   const handleRunCode = async () => {

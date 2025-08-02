@@ -170,6 +170,12 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
               console.log('🔍 DEBUG: Terminal state - wsSendCommand:', !!wsSendCommand, 'isConnected:', isConnected, 'currentContainer:', !!currentContainer);
               console.log('🔍 DEBUG: Connection sources - terminalStore.isConnected:', isConnected);
               
+              // Check if we have the WebSocket sendCommand function
+              if (!wsSendCommand) {
+                console.error('🚨 CRITICAL: wsSendCommand is null/undefined!');
+                console.log('🔍 DEBUG: WebSocket hook state investigation needed');
+              }
+              
               // Handle Ctrl+L to clear terminal (traditional shell behavior)
               if (data === '\f' || data === '\x0c') { // Ctrl+L
                 if (terminal) {
@@ -183,17 +189,19 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
               }
               
               // Send to WebSocket if connection is available
-              // Prioritize WebSocket connection state over container store state
-              if (wsSendCommand && isConnected) {
-                console.log('📤 Sending to WebSocket (connection active)');
-                wsSendCommand(data);
-              } else if (wsSendCommand && currentContainer) {
-                // Fallback: try to send if we have container info but connection might be reconnecting
-                console.log('📤 Sending to WebSocket (container exists, connection uncertain)');
+              // Be more permissive about sending - if we have the function, try to use it
+              if (wsSendCommand) {
+                if (isConnected) {
+                  console.log('📤 Sending to WebSocket (connection confirmed)');
+                } else if (currentContainer) {
+                  console.log('📤 Sending to WebSocket (container exists, connection state uncertain)');
+                } else {
+                  console.log('📤 Sending to WebSocket (attempting anyway - have sendCommand function)');
+                }
                 wsSendCommand(data);
               } else {
                 // Only show error if we truly have no way to send
-                console.log('❌ No WebSocket connection available');
+                console.log('❌ No WebSocket sendCommand function available');
                 console.log('🔍 DEBUG: Error state - wsSendCommand:', !!wsSendCommand, 'isConnected:', isConnected, 'currentContainer:', !!currentContainer);
                 if (terminal) {
                   terminal.write('\r\n\x1b[31m❌ No connection available\x1b[0m\r\n');
@@ -249,7 +257,12 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
   // Auto-connect WebSocket when terminal is ready
   useEffect(() => {
     if (isTerminalInitialized && xtermRef.current && currentContainer && !isConnected) {
-      connect();
+      console.log('🔗 Terminal initialized, attempting WebSocket connection...');
+      // Add a small delay to ensure terminal is fully ready
+      const timer = setTimeout(() => {
+        connect();
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [currentContainer, isConnected, connect, isTerminalInitialized]);
 

@@ -119,7 +119,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // Container actions
-  setCurrentContainer: (container) => set({ currentContainer: container }),
+  setCurrentContainer: (container) => {
+    console.log('🔄 setCurrentContainer called:', container?.id || 'null');
+    set({ currentContainer: container });
+  },
   
   addContainer: (container) => set(state => {
     // Check if container already exists

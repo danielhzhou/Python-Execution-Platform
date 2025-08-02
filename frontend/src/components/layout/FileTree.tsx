@@ -33,8 +33,8 @@ export function FileTree({ className }: { className?: string }) {
   const { currentContainer, setCurrentFile, setError } = useAppStore();
   const { setContent, setLanguage, setDirty } = useEditorStore();
 
-  // Fetch files from Docker container
-  const fetchContainerFiles = useCallback(async () => {
+  // Fetch files from Docker container with retry logic
+  const fetchContainerFiles = useCallback(async (retryCount = 0) => {
     if (!currentContainer?.id) {
       console.log('❌ No current container available');
       setFileTree([]);
@@ -93,6 +93,20 @@ export function FileTree({ className }: { className?: string }) {
       
     } catch (error) {
       console.error('Failed to fetch container files:', error);
+      
+      // Retry logic for container not ready errors
+      if (retryCount < 3 && (
+        error.message?.includes('container not ready') ||
+        error.message?.includes('connection refused') ||
+        error.message?.includes('not found')
+      )) {
+        console.log(`🔄 Retrying file fetch in ${(retryCount + 1) * 1000}ms (attempt ${retryCount + 1}/3)`);
+        setTimeout(() => {
+          fetchContainerFiles(retryCount + 1);
+        }, (retryCount + 1) * 1000);
+        return;
+      }
+      
       setError('Failed to load container files');
       setFileTree([]);
     } finally {
