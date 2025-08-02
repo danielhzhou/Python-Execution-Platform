@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { useEditorStore } from '../../stores/editorStore';
+import { useTerminalStore } from '../../stores/terminalStore';
 import { fileApi } from '../../lib/api';
-import { Card } from '../ui/card';
-import { Button } from '../ui/button';
+
 import { 
   File, 
   Folder, 
   FolderOpen, 
   Plus, 
-  Trash2, 
-  Edit3,
   RotateCcw,
   ChevronRight,
   ChevronDown
@@ -32,6 +30,7 @@ export function FileTree({ className }: { className?: string }) {
   
   const { currentContainer, setCurrentFile, setError } = useAppStore();
   const { setContent, setLanguage, setDirty } = useEditorStore();
+  const { currentDirectory } = useTerminalStore();
 
   // Fetch files from Docker container with retry logic
   const fetchContainerFiles = useCallback(async (retryCount = 0) => {
@@ -96,9 +95,9 @@ export function FileTree({ className }: { className?: string }) {
       
       // Retry logic for container not ready errors
       if (retryCount < 3 && (
-        error.message?.includes('container not ready') ||
-        error.message?.includes('connection refused') ||
-        error.message?.includes('not found')
+        (error as Error).message?.includes('container not ready') ||
+        (error as Error).message?.includes('connection refused') ||
+        (error as Error).message?.includes('not found')
       )) {
         console.log(`🔄 Retrying file fetch in ${(retryCount + 1) * 1000}ms (attempt ${retryCount + 1}/3)`);
         setTimeout(() => {
@@ -132,7 +131,7 @@ export function FileTree({ className }: { className?: string }) {
       let currentPath = '';
       let currentLevel = tree;
 
-      parts.forEach((part, index) => {
+              parts.forEach((part: string, index: number) => {
         currentPath += '/' + part;
         const isLast = index === parts.length - 1;
         
@@ -274,6 +273,26 @@ export function FileTree({ className }: { className?: string }) {
     }
   }, [currentContainer?.id, currentContainer?.status, fetchContainerFiles]);
 
+  // Listen for filesystem changes from terminal commands
+  useEffect(() => {
+    const handleFilesystemChange = (event: CustomEvent) => {
+      console.log('📁 FileTree received filesystem change event:', event.detail);
+      
+      // Refresh file tree with a small delay to allow command to complete
+      setTimeout(() => {
+        fetchContainerFiles();
+      }, 1000);
+    };
+
+    // Add event listener
+    window.addEventListener('filesystem-change', handleFilesystemChange as EventListener);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('filesystem-change', handleFilesystemChange as EventListener);
+    };
+  }, [fetchContainerFiles]);
+
   // Render file tree node - VS Code Style
   const renderFileNode = (node: FileNode, level: number = 0): React.ReactNode => {
     const isSelected = selectedFile === node.path;
@@ -344,21 +363,17 @@ export function FileTree({ className }: { className?: string }) {
     }
   };
 
-  // Format file size
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
   return (
     <div className={`flex flex-col h-full bg-[#252526] ${className}`}>
       {/* File Tree Header - VS Code Style */}
       <div className="flex items-center justify-between px-3 py-2 text-white/90">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-1">
           <span className="font-medium text-xs uppercase tracking-wider">Explorer</span>
+          {currentDirectory && currentDirectory !== '/workspace' && (
+            <span className="text-xs text-white/60 font-mono">
+              {currentDirectory.replace('/workspace/', './')}
+            </span>
+          )}
         </div>
         
         <div className="flex items-center gap-1">
@@ -371,7 +386,7 @@ export function FileTree({ className }: { className?: string }) {
             <Plus className="h-4 w-4" />
           </button>
           <button
-            onClick={fetchContainerFiles}
+            onClick={() => fetchContainerFiles()}
             disabled={loading || !currentContainer}
             className="p-1 hover:bg-white/10 rounded text-white/70 hover:text-white disabled:opacity-50"
             title="Refresh"

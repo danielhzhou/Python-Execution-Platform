@@ -71,10 +71,30 @@ RUN pip install --user --no-cache-dir \
 # Add user's local bin to PATH for pip-installed executables
 ENV PATH="/home/pyuser/.local/bin:$PATH"
 
-# Set up Node.js environment for user
+# Set up Node.js environment for user with optimizations
 RUN mkdir -p /home/pyuser/.npm-global \
+    && mkdir -p /home/pyuser/.npm-cache \
     && npm config set prefix '/home/pyuser/.npm-global' \
-    && echo 'export PATH=/home/pyuser/.npm-global/bin:$PATH' >> /home/pyuser/.bashrc
+    && npm config set cache '/home/pyuser/.npm-cache' \
+    && echo 'export PATH=/home/pyuser/.npm-global/bin:$PATH' >> /home/pyuser/.bashrc \
+    && echo 'export NPM_CONFIG_CACHE=/home/pyuser/.npm-cache' >> /home/pyuser/.bashrc
+
+# Add Node.js project optimization aliases and functions
+RUN echo 'alias npm-clean="rm -rf node_modules package-lock.json && npm cache clean --force"' >> /home/pyuser/.bashrc \
+    && echo 'alias npm-light="npm install --production --no-optional --no-audit --no-fund"' >> /home/pyuser/.bashrc \
+    && echo 'alias npm-dev="npm install --only=dev --no-audit --no-fund"' >> /home/pyuser/.bashrc \
+    && echo '' >> /home/pyuser/.bashrc \
+    && echo '# Function to safely install npm packages with size limits' >> /home/pyuser/.bashrc \
+    && echo 'npm-safe() {' >> /home/pyuser/.bashrc \
+    && echo '  echo "🚀 Installing packages with optimizations..."' >> /home/pyuser/.bashrc \
+    && echo '  npm install --no-audit --no-fund --prefer-offline "$@"' >> /home/pyuser/.bashrc \
+    && echo '  echo "📊 Checking node_modules size..."' >> /home/pyuser/.bashrc \
+    && echo '  if [ -d "node_modules" ]; then' >> /home/pyuser/.bashrc \
+    && echo '    size=$(du -sh node_modules 2>/dev/null | cut -f1)' >> /home/pyuser/.bashrc \
+    && echo '    echo "📦 node_modules size: $size"' >> /home/pyuser/.bashrc \
+    && echo '    echo "💡 Tip: Use npm-light for production-only deps"' >> /home/pyuser/.bashrc \
+    && echo '  fi' >> /home/pyuser/.bashrc \
+    && echo '}' >> /home/pyuser/.bashrc
 
 # Add welcome message to bashrc
 RUN echo 'echo "🐍 Python + Node.js Development Environment Ready!"' >> /home/pyuser/.bashrc && \
@@ -83,7 +103,8 @@ RUN echo 'echo "🐍 Python + Node.js Development Environment Ready!"' >> /home/
     echo 'echo "📚 Pre-installed: pandas, numpy, matplotlib, scikit-learn, flask, fastapi"' >> /home/pyuser/.bashrc && \
     echo 'echo "🛠️  Available: python, pip, node, npm, yarn, git, nano, vim, curl, wget"' >> /home/pyuser/.bashrc && \
     echo 'echo "📁 Working directory: /workspace"' >> /home/pyuser/.bashrc && \
-    echo 'echo "🌐 Package installation enabled: pip, npm, yarn, git clone, conda"' >> /home/pyuser/.bashrc && \
+    echo 'echo "🌐 Package installation: pip, npm, yarn, git clone"' >> /home/pyuser/.bashrc && \
+    echo 'echo "🛡️  Node.js helpers: npm-safe, npm-light, npm-clean"' >> /home/pyuser/.bashrc && \
     echo 'echo ""' >> /home/pyuser/.bashrc
 
 # Default command

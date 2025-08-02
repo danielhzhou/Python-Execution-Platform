@@ -11,6 +11,7 @@ interface TerminalState {
   commandHistory: string[];
   historyIndex: number;
   currentCommand: string;
+  currentDirectory: string;
   
   // Terminal settings
   theme: {
@@ -34,6 +35,7 @@ interface TerminalState {
   setTheme: (theme: Partial<TerminalState['theme']>) => void;
   setFontSize: (size: number) => void;
   setFontFamily: (family: string) => void;
+  setCurrentDirectory: (directory: string) => void;
   reset: () => void;
 }
 
@@ -51,6 +53,7 @@ const initialState = {
   commandHistory: [],
   historyIndex: -1,
   currentCommand: '',
+  currentDirectory: '/workspace',
   theme: defaultTheme,
   fontSize: 14,
   fontFamily: 'Consolas, "Courier New", monospace',
@@ -127,6 +130,8 @@ export const useTerminalStore = create<TerminalState>()(
       setFontSize: (fontSize) => set({ fontSize }),
       
       setFontFamily: (fontFamily) => set({ fontFamily }),
+      
+      setCurrentDirectory: (currentDirectory) => set({ currentDirectory }),
       
       reset: () => set(initialState),
     }),

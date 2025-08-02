@@ -11,7 +11,8 @@ export function useWebSocket() {
   
   const {
     setConnected,
-    addOutput
+    addOutput,
+    setCurrentDirectory
   } = useTerminalStore();
   const { setError, currentContainer } = useAppStore();
   
@@ -156,6 +157,31 @@ export function useWebSocket() {
           } else {
             console.warn('⚠️ Terminal ref not available when trying to show welcome');
           }
+        }
+      });
+
+      // Handle filesystem change events
+      wsRef.current.on('filesystem_change', (message: WebSocketMessage) => {
+        if (message.type === 'filesystem_change' && message.data) {
+          console.log('📁 Filesystem change detected:', message.data);
+          
+          // Trigger file tree refresh by dispatching a custom event
+          const event = new CustomEvent('filesystem-change', {
+            detail: {
+              commandType: message.data.command_type,
+              command: message.data.command,
+              timestamp: message.data.timestamp
+            }
+          });
+          window.dispatchEvent(event);
+        }
+      });
+
+      // Handle directory change events
+      wsRef.current.on('directory_change', (message: WebSocketMessage) => {
+        if (message.type === 'directory_change' && message.data) {
+          console.log('📂 Directory change detected:', message.data.current_directory);
+          setCurrentDirectory(message.data.current_directory);
         }
       });
 

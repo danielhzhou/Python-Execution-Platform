@@ -338,13 +338,28 @@ async def list_container_files(
                 logger.error(f"❌ Container is not running: {container.state.status}")
                 raise HTTPException(status_code=400, detail=f"Container is not running (status: {container.state.status})")
             
-            # List files in /workspace using exec
+            # List files in /workspace using exec (excluding large directories)
             logger.info("📁 Executing find command in container...")
             try:
                 # python-on-whales execute returns a string directly
-                find_output = container.execute(
-                    ["find", "/workspace", "-type", "f", "-o", "-type", "d"]
-                )
+                # Exclude common large directories that can cause performance issues
+                # Add timeout to prevent hanging on very large directories
+                find_output = container.execute([
+                    "timeout", "30s",  # 30 second timeout
+                    "find", "/workspace", 
+                    # Exclude large directories
+                    "-path", "*/node_modules", "-prune", "-o",
+                    "-path", "*/.git", "-prune", "-o", 
+                    "-path", "*/venv", "-prune", "-o",
+                    "-path", "*/__pycache__", "-prune", "-o",
+                    "-path", "*/dist", "-prune", "-o",
+                    "-path", "*/build", "-prune", "-o",
+                    "-path", "*/.next", "-prune", "-o",
+                    "-path", "*/.nuxt", "-prune", "-o",
+                    "-path", "*/coverage", "-prune", "-o",
+                    # Include files and directories (but not the pruned ones)
+                    "-type", "f", "-print", "-o", "-type", "d", "-print"
+                ])
                 
                 if find_output is None:
                     logger.error("❌ Find command returned None")

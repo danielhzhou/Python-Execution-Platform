@@ -65,6 +65,8 @@ export type WebSocketMessage =
   | { type: 'pong'; data?: any }
   | { type: 'connection'; data: string }
   | { type: 'disconnection'; data: string }
+  | { type: 'filesystem_change'; data: { command_type: string; command: string; timestamp: string } }
+  | { type: 'directory_change'; data: { current_directory: string; timestamp: string } }
   | { type: 'error'; data?: { message: string }; message?: string };
 
 // API response types
