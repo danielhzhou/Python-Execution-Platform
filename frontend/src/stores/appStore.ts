@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Container, User } from '../types';
-import { getAuthToken, authApi } from '../lib/api';
+import { getAuthToken, authApi, setTokenExpirationHandler, startTokenRefreshScheduling, stopTokenRefreshScheduling } from '../lib/api';
 
 interface AppState {
   // User authentication
@@ -41,18 +41,38 @@ interface AppState {
   isLoading: boolean;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
-  // Initial state
-  user: null,
-  isAuthenticated: false,
-  currentContainer: null,
-  containers: [],
-  files: [],
-  currentFile: null,
-  loading: false,
-  error: null,
+export const useAppStore = create<AppState>((set, get) => {
+  // Set up token expiration handler
+  const handleTokenExpiration = () => {
+    console.log('Token expired, logging out user');
+    // Stop any scheduled refresh
+    stopTokenRefreshScheduling();
+    set({ 
+      isAuthenticated: false, 
+      user: null,
+      currentContainer: null,
+      containers: [],
+      files: [],
+      currentFile: null,
+      loading: false,
+      error: 'Your session has expired. Please log in again.'
+    });
+  };
   
-  get isLoading() { return get().loading; },
+  setTokenExpirationHandler(handleTokenExpiration);
+  
+  return {
+    // Initial state
+    user: null,
+    isAuthenticated: false,
+    currentContainer: null,
+    containers: [],
+    files: [],
+    currentFile: null,
+    loading: false,
+    error: null,
+    
+    get isLoading() { return get().loading; },
 
   // Auth actions
   setUser: (user) => set({ user }),
@@ -62,17 +82,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   checkAuthStatus: async () => {
     const token = getAuthToken();
     if (!token) {
-      set({ isAuthenticated: false, user: null });
+      set({ isAuthenticated: false, user: null, error: null });
       return;
     }
 
     // Set loading while checking auth
-    set({ loading: true });
+    set({ loading: true, error: null });
 
     try {
       const response = await authApi.getCurrentUser();
       if (response.success && response.data) {
         console.log('Authentication verified for user:', response.data.email);
+        // Start periodic token refresh scheduling
+        startTokenRefreshScheduling();
         set({ 
           isAuthenticated: true, 
           user: response.data,
@@ -81,24 +103,39 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       } else {
         console.log('Authentication failed:', response.error);
-        set({ 
-          isAuthenticated: false, 
-          user: null,
-          loading: false
-        });
+        // Clear any expired token
+        if (response.error?.includes('expired') || response.error?.includes('Session')) {
+          set({ 
+            isAuthenticated: false, 
+            user: null,
+            loading: false,
+            error: response.error
+          });
+        } else {
+          set({ 
+            isAuthenticated: false, 
+            user: null,
+            loading: false,
+            error: null
+          });
+        }
       }
     } catch (error) {
       console.error('Auth check error:', error);
       set({ 
         isAuthenticated: false, 
         user: null,
-        loading: false
+        loading: false,
+        error: null
       });
     }
   },
 
   logout: async () => {
     set({ loading: true });
+    
+    // Stop token refresh scheduling
+    stopTokenRefreshScheduling();
     
     try {
       await authApi.logout();
@@ -171,4 +208,5 @@ export const useAppStore = create<AppState>((set, get) => ({
   // UI actions
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
-}));   
+  };
+});   

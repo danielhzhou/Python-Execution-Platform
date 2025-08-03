@@ -86,9 +86,14 @@ export interface ApiResponse<T> {
 // Auth response types
 export interface AuthResponse {
   access_token: string;
+  refresh_token?: string;
   user: {
     id: string;
     email: string;
+    full_name?: string;
+    role?: string;
+    created_at?: string;
+    updated_at?: string;
     user_metadata?: {
       full_name?: string;
       avatar_url?: string;
