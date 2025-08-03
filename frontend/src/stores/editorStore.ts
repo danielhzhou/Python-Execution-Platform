@@ -42,7 +42,7 @@ const initialState = {
   wordWrap: 'on' as const,
   minimap: true,
   autoSaveEnabled: true,
-  autoSaveDelay: 2000,
+  autoSaveDelay: 5000,
 };
 
 export const useEditorStore = create<EditorState>()(
