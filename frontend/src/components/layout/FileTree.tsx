@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/appStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { fileApi } from '../../lib/api';
+import { CreateFileModal } from '../common/CreateFileModal';
 
 import { 
   File, 
@@ -27,6 +28,8 @@ export function FileTree({ className }: { className?: string }) {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creatingFile, setCreatingFile] = useState(false);
   
   const { currentContainer, setCurrentFile, setError } = useAppStore();
   const { setContent, setLanguage, setDirty } = useEditorStore();
@@ -232,17 +235,28 @@ export function FileTree({ className }: { className?: string }) {
     setFileTree(updateTree(fileTree));
   }, [fileTree]);
 
-  // Create new file
-  const createFile = useCallback(async () => {
+  // Open create file modal
+  const openCreateFileModal = useCallback(() => {
+    if (!currentContainer?.id) return;
+    setShowCreateModal(true);
+  }, [currentContainer?.id]);
+
+  // Create new file with template
+  const handleCreateFile = useCallback(async (fileName: string, template: string = '') => {
     if (!currentContainer?.id) return;
 
-    const fileName = prompt('Enter file name:');
-    if (!fileName) return;
-
-    const filePath = `/workspace/${fileName}`;
+    setCreatingFile(true);
+    
+    // Determine the file path based on current directory
+    const basePath = currentDirectory && currentDirectory !== '/workspace' 
+      ? currentDirectory 
+      : '/workspace';
+    const filePath = `${basePath}/${fileName}`.replace(/\/+/g, '/');
     
     try {
-      const result = await fileApi.save(currentContainer.id, filePath, '');
+      console.log('🔨 Creating file:', filePath, 'with template length:', template.length);
+      
+      const result = await fileApi.save(currentContainer.id, filePath, template);
       
       if (!result.success) {
         console.error('📛 Failed to create file:', result.error);
@@ -253,11 +267,54 @@ export function FileTree({ className }: { className?: string }) {
       await fetchContainerFiles();
       await loadFile(filePath);
       
+      console.log('✅ File created successfully:', filePath);
+      
     } catch (error) {
       console.error('Failed to create file:', error);
       setError(`Failed to create file: ${fileName}`);
+      throw error; // Re-throw to let modal handle it
+    } finally {
+      setCreatingFile(false);
     }
-  }, [currentContainer?.id, fetchContainerFiles, loadFile, setError]);
+  }, [currentContainer?.id, currentDirectory, fetchContainerFiles, loadFile, setError]);
+
+  // Create new folder
+  const handleCreateFolder = useCallback(async (folderName: string) => {
+    if (!currentContainer?.id) return;
+
+    setCreatingFile(true);
+    
+    // Determine the folder path based on current directory
+    const basePath = currentDirectory && currentDirectory !== '/workspace' 
+      ? currentDirectory 
+      : '/workspace';
+    const folderPath = `${basePath}/${folderName}`.replace(/\/+/g, '/');
+    
+    try {
+      console.log('📁 Creating folder:', folderPath);
+      
+      // Create a temporary file in the folder to ensure it exists, then remove it
+      const tempFilePath = `${folderPath}/.gitkeep`;
+      const result = await fileApi.save(currentContainer.id, tempFilePath, '# This file ensures the directory exists\n');
+      
+      if (!result.success) {
+        console.error('📛 Failed to create folder:', result.error);
+        throw new Error(typeof result.error === 'string' ? result.error : 'Failed to create folder');
+      }
+
+      // Refresh file tree
+      await fetchContainerFiles();
+      
+      console.log('✅ Folder created successfully:', folderPath);
+      
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+      setError(`Failed to create folder: ${folderName}`);
+      throw error; // Re-throw to let modal handle it
+    } finally {
+      setCreatingFile(false);
+    }
+  }, [currentContainer?.id, currentDirectory, fetchContainerFiles, setError]);
 
   // Fetch files when container changes
   useEffect(() => {
@@ -382,7 +439,7 @@ export function FileTree({ className }: { className?: string }) {
         
         <div className="flex items-center gap-1">
           <button
-            onClick={createFile}
+            onClick={openCreateFileModal}
             disabled={!currentContainer}
             className="p-1 hover:bg-white/10 rounded text-white/70 hover:text-white disabled:opacity-50"
             title="New File"
@@ -414,7 +471,7 @@ export function FileTree({ className }: { className?: string }) {
           <div className="flex flex-col items-center justify-center h-32 gap-3">
             <div className="text-sm text-white/60">No files found</div>
             <button
-              onClick={createFile}
+              onClick={openCreateFileModal}
               className="px-3 py-1 bg-[#0e639c] hover:bg-[#1177bb] text-white text-sm rounded"
             >
               New File
@@ -426,6 +483,16 @@ export function FileTree({ className }: { className?: string }) {
           </div>
         )}
       </div>
+
+      {/* Create File Modal */}
+      <CreateFileModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreateFile={handleCreateFile}
+        onCreateFolder={handleCreateFolder}
+        currentDirectory={currentDirectory || '/workspace'}
+        loading={creatingFile}
+      />
     </div>
   );
 }
