@@ -205,43 +205,61 @@ class SubmissionService:
     async def _move_submission_files(self, submission: Submission, review_status: str):
         """Move submission files to approved/rejected folder"""
         try:
-            if not submission.storage_path:
+            # Get all files for this submission from database
+            submission_files = await db_service.get_submission_files(submission.id)
+            if not submission_files:
+                logger.warning(f"No files found for submission {submission.id}")
                 return
             
             # Determine target folder
             folder = "approved" if review_status == "approved" else "rejected"
-            new_path = f"{folder}/{submission.id}/submission.zip"
+            moved_files = []
             
-            # Download the file
-            result = self.supabase.storage.from_(self.bucket_name).download(submission.storage_path)
-            # Check if download was successful
-            if not result:
-                logger.error(f"Failed to download submission for moving: No response")
-                return
+            # Move each file individually
+            for file_record in submission_files:
+                if not file_record.storage_path:
+                    continue
+                
+                # Generate new path
+                old_path = file_record.storage_path
+                # Extract filename from old path
+                filename = old_path.split('/')[-1]
+                new_path = f"{folder}/{submission.id}/{filename}"
+                
+                # Download file from old location
+                download_result = self.supabase.storage.from_(self.bucket_name).download(old_path)
+                if not download_result:
+                    logger.error(f"Failed to download file {old_path}")
+                    continue
+                
+                # Upload to new location
+                upload_result = self.supabase.storage.from_(self.bucket_name).upload(
+                    path=new_path,
+                    file=download_result.data,
+                    file_options={
+                        "content-type": file_record.mime_type or "text/plain",
+                        "upsert": "true"
+                    }
+                )
+                
+                if not upload_result:
+                    logger.error(f"Failed to upload file to {new_path}")
+                    continue
+                
+                # Update file record with new storage path
+                await db_service.update_submission_file_storage_path(file_record.id, new_path)
+                moved_files.append(new_path)
+                
+                # Delete from old location
+                delete_result = self.supabase.storage.from_(self.bucket_name).remove([old_path])
+                if not delete_result:
+                    logger.warning(f"Failed to delete old file: {old_path}")
             
-            # Upload to new location
-            upload_result = self.supabase.storage.from_(self.bucket_name).upload(
-                path=new_path,
-                file=result.data,
-                file_options={
-                    "content-type": "application/zip",
-                    "upsert": "true"
-                }
-            )
-            
-            # Check if upload was successful
-            if not upload_result:
-                logger.error(f"Failed to upload to new location: No response")
-                return
-            
-            # Delete from old location
-            delete_result = self.supabase.storage.from_(self.bucket_name).remove([submission.storage_path])
-            # Check if delete was successful (non-critical)
-            if not delete_result:
-                logger.warning(f"Failed to delete old file: No response")
-            
-            # Update submission storage path
-            await db_service.update_submission(submission.id, storage_path=new_path)
+            if moved_files:
+                # Update submission storage path to the folder
+                new_folder_path = f"{folder}/{submission.id}/"
+                await db_service.update_submission(submission.id, storage_path=new_folder_path)
+                logger.info(f"Moved {len(moved_files)} files for submission {submission.id}")
             
         except Exception as e:
             logger.error(f"Error moving submission files: {e}")
