@@ -237,7 +237,7 @@ class SubmissionService:
                 # Upload to new location
                 upload_result = self.supabase.storage.from_(self.bucket_name).upload(
                     path=new_path,
-                    file=download_result.data,
+                    file=download_result,
                     file_options={
                         "content-type": file_record.mime_type or "text/plain",
                         "upsert": "true"
@@ -289,7 +289,8 @@ class SubmissionService:
                         continue
                     
                     # Add file to ZIP using original file path
-                    zip_file.writestr(file_record.file_path, result.data)
+                    # result is bytes directly, no need for .data
+                    zip_file.writestr(file_record.file_path, result)
             
             zip_buffer.seek(0)
             return zip_buffer.getvalue()

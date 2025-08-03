@@ -1,6 +1,6 @@
 import { useAppStore } from '../../stores/appStore';
 import { ReviewerDashboard } from './ReviewerDashboard';
-import { SubmitterInterface } from './SubmitterInterface';
+import { SimpleSubmitterInterface } from './SimpleSubmitterInterface';
 import type { UserRole } from '../../types';
 
 interface SubmissionSystemProps {
@@ -26,9 +26,9 @@ export function SubmissionSystem({ className, currentFiles }: SubmissionSystemPr
     return <ReviewerDashboard className={className} />;
   }
 
-  return (
-    <SubmitterInterface 
-      className={className} 
+    return (
+    <SimpleSubmitterInterface 
+      className={className}
       currentFiles={currentFiles}
     />
   );
