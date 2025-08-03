@@ -51,7 +51,7 @@ async def test_login(email: str, password: str):
 
 
 async def confirm_user_email(email: str):
-    """Manually confirm user email in Supabase (workaround)"""
+    """Manually confirm user email in Supabase (for testing/admin purposes)"""
     try:
         supabase = get_supabase_client()
         

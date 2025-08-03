@@ -37,12 +37,12 @@ export function AuthForm({}: AuthFormProps = {}) {
       } else {
         const response = await authApi.register(email, password, fullName);
         if (response.success) {
-          setMessage('Registration successful! Please check your email for verification.');
+          setMessage('Registration successful! Please check your email and click the verification link to activate your account. Check your spam folder if you don\'t see it.');
           // After successful registration, switch to login
           setTimeout(() => {
             setIsLogin(true);
-            setMessage('');
-          }, 3000);
+            setMessage('You can now log in after verifying your email.');
+          }, 5000);
         } else {
           setError(typeof response.error === 'string' ? response.error : 'Registration failed');
         }

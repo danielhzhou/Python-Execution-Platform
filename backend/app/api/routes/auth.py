@@ -163,4 +163,4 @@ async def logout_user(current_user: User = Depends(get_current_user)):
         return {"message": "Logout successful"}
 
 
-# Email confirmation routes removed - not needed without email confirmation 
+# Email confirmation is handled automatically by Supabase Auth 
