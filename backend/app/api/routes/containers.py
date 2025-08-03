@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.core.auth import get_current_user_id
 from app.models.container import ContainerCreateRequest, ContainerResponse, TerminalSession
 from app.services.container_service import container_service
+from app.services.websocket_service import websocket_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -513,49 +514,23 @@ async def save_container_file(
                 logger.error(f"Error writing file: {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to write file: {str(e)}")
             
-            # Verify the file was written correctly by reading it back
+            # Estimate file size from content length (no additional Docker call)
+            size = len(request.content.encode('utf-8'))
+            logger.info(f"✅ Successfully saved file {request.path} ({size} bytes)")
+            
+            # Notify WebSocket clients about file change
             try:
-                written_content = container.execute(["cat", request.path])
-            except Exception as e:
-                logger.error(f"Error verifying file write: {e}")
-                raise HTTPException(status_code=500, detail="Failed to verify file was written")
-            
-            # Log verification details for debugging
-            logger.info(f"File verification - Expected length: {len(request.content)}, Actual length: {len(written_content)}")
-            
-            # Normalize line endings for comparison (handle Windows/Unix differences)
-            expected_normalized = request.content.replace('\r\n', '\n').replace('\r', '\n')
-            actual_normalized = written_content.replace('\r\n', '\n').replace('\r', '\n')
-            
-            # More lenient verification - only check if file is not empty and roughly the right size
-            if len(actual_normalized) == 0:
-                logger.error("File verification failed: written file is empty")
-                raise HTTPException(status_code=500, detail="File was not written (empty file)")
-            
-            # Allow for small differences (up to 5% difference in size)
-            size_diff_ratio = abs(len(actual_normalized) - len(expected_normalized)) / max(len(expected_normalized), 1)
-            if size_diff_ratio > 0.05:  # More than 5% difference
-                logger.error(f"File size difference too large: {size_diff_ratio:.2%}")
-                logger.error(f"Expected {len(expected_normalized)} chars, got {len(actual_normalized)} chars")
-                raise HTTPException(status_code=500, detail="File content size verification failed")
-            
-            # If content is identical, great! If not, just log a warning but don't fail
-            if actual_normalized != expected_normalized:
-                logger.warning(f"File content differs slightly (possibly line endings or encoding)")
-                logger.warning(f"Expected first 50 chars: {repr(expected_normalized[:50])}")
-                logger.warning(f"Actual first 50 chars: {repr(actual_normalized[:50])}")
-                # Don't raise an exception - the file is probably fine
-            else:
-                logger.info("✅ File content verification passed - exact match")
-            
-            # Get file size
-            try:
-                size_output = container.execute(["stat", "-c", "%s", request.path])
-                size = int(size_output.strip()) if size_output.strip().isdigit() else len(written_content)
-            except:
-                size = len(written_content)
-            
-            logger.info(f"✅ Successfully saved and verified file {request.path} ({size} bytes)")
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "create_file", 
+                        f"API file save: {request.path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for {request.path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
             
             return ContainerFileResponse(
                 path=request.path,
@@ -607,6 +582,21 @@ async def delete_container_file(
                 raise HTTPException(status_code=500, detail="Failed to delete file")
             
             logger.info(f"Successfully deleted file {path}")
+            
+            # Notify WebSocket clients about file deletion
+            try:
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "delete", 
+                        f"API file delete: {path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for deleted file {path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            
             return {"message": "File deleted successfully"}
             
         except Exception as docker_error:
@@ -647,6 +637,21 @@ async def create_container_directory(
                 raise HTTPException(status_code=500, detail="Failed to create directory")
             
             logger.info(f"Successfully created directory {path}")
+            
+            # Notify WebSocket clients about directory creation
+            try:
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "create_dir", 
+                        f"API directory create: {path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for created directory {path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            
             return {"message": "Directory created successfully", "path": path}
             
         except Exception as docker_error:
@@ -698,6 +703,21 @@ async def rename_container_file(
                 raise HTTPException(status_code=500, detail="Failed to rename file")
             
             logger.info(f"Successfully renamed file from {old_path} to {new_path}")
+            
+            # Notify WebSocket clients about file rename/move
+            try:
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "move_copy", 
+                        f"API file rename: {old_path} -> {new_path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for renamed file {old_path} -> {new_path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            
             return {"message": "File renamed successfully", "old_path": old_path, "new_path": new_path}
             
         except Exception as docker_error:

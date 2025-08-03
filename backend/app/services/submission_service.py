@@ -1,0 +1,364 @@
+"""
+Submission service for handling code submissions and reviews
+"""
+import logging
+import os
+import zipfile
+from datetime import datetime
+from typing import List, Optional, Dict, Any
+from io import BytesIO
+
+from app.core.supabase import get_supabase_client
+from app.services.database_service import db_service
+from app.models.container import Submission, SubmissionFile, SubmissionStatus, UserRole
+
+logger = logging.getLogger(__name__)
+
+
+class SubmissionService:
+    """Service for managing code submissions"""
+    
+    def __init__(self):
+        self.supabase = get_supabase_client()
+        self.bucket_name = "submissions"
+    
+    async def create_submission(
+        self, 
+        submitter_id: str, 
+        project_id: str, 
+        title: str, 
+        description: Optional[str] = None
+    ) -> Optional[Submission]:
+        """Create a new submission"""
+        try:
+            submission = await db_service.create_submission(
+                submitter_id=submitter_id,
+                project_id=project_id,
+                title=title,
+                description=description
+            )
+            return submission
+        except Exception as e:
+            logger.error(f"Error creating submission: {e}")
+            return None
+    
+    async def upload_submission_files(
+        self, 
+        submission_id: str, 
+        files: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Upload files for a submission to Supabase storage as individual files
+        files format: [{"path": str, "content": str, "name": str}]
+        """
+        try:
+            uploaded_files = []
+            
+            # Upload each file individually
+            for file_data in files:
+                # Generate storage path for individual file
+                # Use file path but sanitize it for storage
+                sanitized_path = file_data["path"].replace("/", "_").replace("\\", "_")
+                storage_path = f"pending/{submission_id}/{sanitized_path}"
+                
+                # Convert content to bytes
+                file_content = file_data["content"].encode('utf-8')
+                
+                # Determine MIME type based on file extension
+                mime_type = self._get_mime_type(file_data["name"])
+                
+                # Upload to Supabase Storage
+                try:
+                    result = self.supabase.storage.from_(self.bucket_name).upload(
+                        path=storage_path,
+                        file=file_content,
+                        file_options={
+                            "content-type": mime_type,
+                            "upsert": "true"
+                        }
+                    )
+                    
+                    # Check if upload was successful
+                    if not result:
+                        logger.error(f"Failed to upload file {file_data['name']}: No response")
+                        raise Exception(f"Failed to upload file {file_data['name']}")
+                        
+                except Exception as upload_error:
+                    error_msg = str(upload_error)
+                    logger.error(f"Failed to upload file {file_data['name']}: {error_msg}")
+                    
+                    # Parse specific Supabase errors
+                    if "413" in error_msg or "too large" in error_msg.lower():
+                        raise Exception(f"File '{file_data['name']}' is too large. Maximum file size is 50MB.")
+                    elif "401" in error_msg or "unauthorized" in error_msg.lower():
+                        raise Exception(f"Storage access denied. Please check your permissions.")
+                    elif "403" in error_msg or "forbidden" in error_msg.lower():
+                        raise Exception(f"Storage access forbidden. Please check bucket permissions.")
+                    elif "storage quota" in error_msg.lower() or "quota exceeded" in error_msg.lower():
+                        raise Exception(f"Storage quota exceeded. Please contact administrator.")
+                    else:
+                        raise Exception(f"Failed to upload file '{file_data['name']}': {error_msg}")
+                
+                # Create database record for this file
+                await db_service.create_submission_file(
+                    submission_id=submission_id,
+                    file_path=file_data["path"],
+                    file_name=file_data["name"],
+                    content=file_data["content"],
+                    storage_path=storage_path,
+                    file_size=len(file_content),
+                    mime_type=mime_type
+                )
+                
+                uploaded_files.append(storage_path)
+            
+            if not uploaded_files:
+                logger.error("No files were successfully uploaded")
+                return False
+            
+            # Update submission with folder path (not specific file)
+            folder_path = f"pending/{submission_id}/"
+            await db_service.update_submission(submission_id, storage_path=folder_path)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error uploading submission files: {e}")
+            return False
+    
+    def _get_mime_type(self, filename: str) -> str:
+        """Get MIME type based on file extension"""
+        extension = filename.lower().split('.')[-1] if '.' in filename else ''
+        mime_types = {
+            'py': 'text/x-python',
+            'js': 'text/javascript',
+            'ts': 'text/typescript',
+            'html': 'text/html',
+            'css': 'text/css',
+            'json': 'application/json',
+            'md': 'text/markdown',
+            'txt': 'text/plain',
+            'yml': 'text/yaml',
+            'yaml': 'text/yaml',
+            'xml': 'text/xml',
+            'sql': 'text/sql',
+            'sh': 'text/x-shellscript',
+            'dockerfile': 'text/plain',
+            'gitignore': 'text/plain',
+            'env': 'text/plain',
+        }
+        return mime_types.get(extension, 'text/plain')
+    
+    async def submit_for_review(self, submission_id: str) -> bool:
+        """Submit a submission for review"""
+        try:
+            # Update submission status and timestamp
+            await db_service.update_submission(
+                submission_id=submission_id,
+                status=SubmissionStatus.SUBMITTED.value,
+                submitted_at=datetime.utcnow()
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error submitting for review: {e}")
+            return False
+    
+    async def get_submissions_for_review(self, reviewer_id: str) -> List[Submission]:
+        """Get all submissions available for review"""
+        try:
+            # Get all submitted submissions
+            submissions = await db_service.get_submissions_by_status(
+                SubmissionStatus.SUBMITTED.value
+            )
+            return submissions
+        except Exception as e:
+            logger.error(f"Error getting submissions for review: {e}")
+            return []
+    
+    async def get_user_submissions(self, user_id: str) -> List[Submission]:
+        """Get all submissions by a user"""
+        try:
+            submissions = await db_service.get_submissions_by_submitter(user_id)
+            return submissions
+        except Exception as e:
+            logger.error(f"Error getting user submissions: {e}")
+            return []
+    
+    async def review_submission(
+        self, 
+        submission_id: str, 
+        reviewer_id: str, 
+        status: str, 
+        comment: str
+    ) -> bool:
+        """Review a submission (approve/reject)"""
+        try:
+            # Create review record
+            await db_service.create_submission_review(
+                submission_id=submission_id,
+                reviewer_id=reviewer_id,
+                status=status,
+                comment=comment
+            )
+            
+            # Update submission status
+            new_status = SubmissionStatus.APPROVED.value if status == "approved" else SubmissionStatus.REJECTED.value
+            await db_service.update_submission(
+                submission_id=submission_id,
+                status=new_status,
+                reviewer_id=reviewer_id,
+                reviewed_at=datetime.utcnow()
+            )
+            
+            # Move files to appropriate folder in storage
+            submission = await db_service.get_submission(submission_id)
+            if submission and submission.storage_path:
+                await self._move_submission_files(submission, status)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error reviewing submission: {e}")
+            return False
+    
+    async def _move_submission_files(self, submission: Submission, review_status: str):
+        """Move submission files to approved/rejected folder"""
+        try:
+            # Get all files for this submission from database
+            submission_files = await db_service.get_submission_files(submission.id)
+            if not submission_files:
+                logger.warning(f"No files found for submission {submission.id}")
+                return
+            
+            # Determine target folder
+            folder = "approved" if review_status == "approved" else "rejected"
+            moved_files = []
+            
+            # Move each file individually
+            for file_record in submission_files:
+                if not file_record.storage_path:
+                    continue
+                
+                # Generate new path
+                old_path = file_record.storage_path
+                # Extract filename from old path
+                filename = old_path.split('/')[-1]
+                new_path = f"{folder}/{submission.id}/{filename}"
+                
+                # Download file from old location
+                download_result = self.supabase.storage.from_(self.bucket_name).download(old_path)
+                if not download_result:
+                    logger.error(f"Failed to download file {old_path}")
+                    continue
+                
+                # Upload to new location
+                upload_result = self.supabase.storage.from_(self.bucket_name).upload(
+                    path=new_path,
+                    file=download_result,
+                    file_options={
+                        "content-type": file_record.mime_type or "text/plain",
+                        "upsert": "true"
+                    }
+                )
+                
+                if not upload_result:
+                    logger.error(f"Failed to upload file to {new_path}")
+                    continue
+                
+                # Update file record with new storage path
+                await db_service.update_submission_file_storage_path(file_record.id, new_path)
+                moved_files.append(new_path)
+                
+                # Delete from old location
+                delete_result = self.supabase.storage.from_(self.bucket_name).remove([old_path])
+                if not delete_result:
+                    logger.warning(f"Failed to delete old file: {old_path}")
+            
+            if moved_files:
+                # Update submission storage path to the folder
+                new_folder_path = f"{folder}/{submission.id}/"
+                await db_service.update_submission(submission.id, storage_path=new_folder_path)
+                logger.info(f"Moved {len(moved_files)} files for submission {submission.id}")
+            
+        except Exception as e:
+            logger.error(f"Error moving submission files: {e}")
+    
+    async def download_submission_files(self, submission_id: str) -> Optional[bytes]:
+        """Download submission files as a zip (created on-the-fly from individual files)"""
+        try:
+            # Get all files for this submission
+            submission_files = await db_service.get_submission_files(submission_id)
+            if not submission_files:
+                logger.warning(f"No files found for submission {submission_id}")
+                return None
+            
+            # Create ZIP file in memory
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for file_record in submission_files:
+                    if not file_record.storage_path:
+                        continue
+                    
+                    # Download individual file from storage
+                    result = self.supabase.storage.from_(self.bucket_name).download(file_record.storage_path)
+                    if not result:
+                        logger.warning(f"Failed to download file {file_record.file_name}")
+                        continue
+                    
+                    # Add file to ZIP using original file path
+                    # result is bytes directly, no need for .data
+                    zip_file.writestr(file_record.file_path, result)
+            
+            zip_buffer.seek(0)
+            return zip_buffer.getvalue()
+            
+        except Exception as e:
+            logger.error(f"Error downloading submission files: {e}")
+            return None
+    
+    async def get_submission_with_files(self, submission_id: str) -> Optional[Dict[str, Any]]:
+        """Get submission with all its files"""
+        try:
+            submission = await db_service.get_submission(submission_id)
+            if not submission:
+                return None
+            
+            files = await db_service.get_submission_files(submission_id)
+            reviews = await db_service.get_submission_reviews(submission_id)
+            
+            return {
+                "submission": submission,
+                "files": files,
+                "reviews": reviews
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting submission with files: {e}")
+            return None
+    
+    async def get_approved_submissions(self) -> List[Dict[str, Any]]:
+        """Get list of approved submissions with submitter info"""
+        try:
+            submissions = await db_service.get_submissions_by_status(SubmissionStatus.APPROVED.value)
+            result = []
+            
+            for submission in submissions:
+                submitter = await db_service.get_user(submission.submitter_id)
+                result.append({
+                    "submission_id": submission.id,
+                    "title": submission.title,
+                    "submitter_email": submitter.email if submitter else "Unknown",
+                    "submitter_id": submission.submitter_id,
+                    "submitted_at": submission.submitted_at,
+                    "reviewed_at": submission.reviewed_at
+                })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting approved submissions: {e}")
+            return []
+
+
+# Global instance
+submission_service = SubmissionService()

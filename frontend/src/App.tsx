@@ -12,12 +12,14 @@ import { AuthForm } from './components/common/AuthForm';
 import { SubmissionDialog } from './components/common/SubmissionDialog';
 import { ToastProvider } from './components/common/ToastProvider';
 import { ErrorBoundary, MonacoErrorBoundary, TerminalErrorBoundary } from './components/common/ErrorBoundary';
+import { SubmissionModal } from './components/submissions/SubmissionModal';
 import { useAppStore } from './stores/appStore';
 import { useContainer } from './hooks/useContainer';
 
 import { useEditorStore } from './stores/editorStore';
 import { useTerminalStore } from './stores/terminalStore';
 import { useAutoSave } from './hooks/useAutoSave';
+import { fileApi } from './lib/api';
 
 import './App.css';
 
@@ -53,6 +55,58 @@ function App() {
   const [showSubmissionDialog, setShowSubmissionDialog] = useState(false);
   const [hasAttemptedContainerCreation, setHasAttemptedContainerCreation] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+  const [currentFiles, setCurrentFiles] = useState<Array<{ path: string; content: string; name: string }>>([]);
+
+  // Function to fetch all files from container for submissions
+  const fetchAllFiles = useCallback(async () => {
+    if (!currentContainer?.id || currentContainer.status !== 'running') {
+      setCurrentFiles([]);
+      return;
+    }
+
+    try {
+      // Get file list
+      const listResponse = await fileApi.list(currentContainer.id);
+      if (!listResponse.success || !listResponse.data) {
+        setCurrentFiles([]);
+        return;
+      }
+
+      const files = listResponse.data;
+      const fileContents: Array<{ path: string; content: string; name: string }> = [];
+
+      // Fetch content for each file (only text files)
+      for (const file of files) {
+        try {
+          if (file.type === 'file' && file.name.match(/\.(py|txt|md|json|yaml|yml|js|ts|html|css|sh)$/i)) {
+            const contentResponse = await fileApi.get(currentContainer.id, file.path);
+            if (contentResponse.success && contentResponse.data?.content) {
+              fileContents.push({
+                path: file.path,
+                content: contentResponse.data.content,
+                name: file.name
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch content for ${file.path}:`, error);
+        }
+      }
+
+      setCurrentFiles(fileContents);
+    } catch (error) {
+      console.error('Error fetching files:', error);
+      setCurrentFiles([]);
+    }
+  }, [currentContainer?.id, currentContainer?.status]);
+
+  // Fetch files when opening submission modal
+  useEffect(() => {
+    if (showSubmissionModal) {
+      fetchAllFiles();
+    }
+  }, [showSubmissionModal, fetchAllFiles]);
 
   // Check auth status only once on mount
   useEffect(() => {
@@ -240,16 +294,15 @@ function App() {
             
             {/* Main Editor Area */}
             <div className="flex-1 flex flex-col min-w-0">
-              {/* Editor Tabs Area */}
+              {/* File Tab and Action Buttons */}
               <div className="h-9 bg-[#2d2d30] border-b border-border/50 flex items-center justify-between px-2">
                 <div className="flex items-center">
-                  <div className="px-3 py-1 text-sm text-white bg-[#1e1e1e] border-r border-border/30 flex items-center gap-2">
+                  <div className="px-3 py-1 text-sm border-r border-border/30 flex items-center gap-2 text-white bg-[#1e1e1e]">
                     <span>{currentFile?.name || 'main.py'}</span>
                     <FileTabIndicator />
                   </div>
                 </div>
                 
-                {/* Save and Run Buttons */}
                 <div className="flex items-center gap-2">
                   <SaveButton />
                   <button 
@@ -272,10 +325,21 @@ function App() {
                       </>
                     )}
                   </button>
+                  <button 
+                    onClick={() => setShowSubmissionModal(true)}
+                    disabled={!currentContainer || !isAuthenticated}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-[#28a745] hover:bg-[#218838] disabled:bg-gray-500 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
+                    title="Submit your work"
+                  >
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                    Submit
+                  </button>
                 </div>
               </div>
               
-              {/* Editor and Terminal Container */}
+              {/* Content Container - Editor and Terminal */}
               <div className="flex-1 flex flex-col min-h-0">
                 <ResizablePanel
                   direction="vertical"
@@ -347,6 +411,13 @@ function App() {
           <SubmissionDialog
             open={showSubmissionDialog}
             onOpenChange={setShowSubmissionDialog}
+          />
+
+          {/* Submission Modal */}
+          <SubmissionModal
+            isOpen={showSubmissionModal}
+            onClose={() => setShowSubmissionModal(false)}
+            currentFiles={currentFiles}
           />
         </div>
       </ErrorBoundary>
