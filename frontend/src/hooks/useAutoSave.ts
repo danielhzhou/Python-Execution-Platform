@@ -3,6 +3,8 @@ import { useEditorStore } from '../stores/editorStore';
 import { useAppStore } from '../stores/appStore';
 import { fileApi } from '../lib/api';
 import { debounce } from '../lib/utils';
+import { monacoModelManager } from '../lib/monacoModelManager';
+import { fileCache } from '../lib/fileCache';
 
 export function useAutoSave() {
   const {
@@ -70,6 +72,20 @@ export function useAutoSave() {
         markSaved();
         lastSavedContent.current = content;
         setError(null);
+        
+        // Update cache with saved content
+        if (currentContainer?.id && currentFile?.path) {
+          fileCache.set(
+            currentContainer.id, 
+            currentFile.path, 
+            content, 
+            currentFile.language || 'plaintext'
+          );
+          
+          // Mark model as saved in model manager
+          monacoModelManager.markModelSaved(currentContainer.id, currentFile.path);
+        }
+        
         console.log('✅ File saved successfully:', currentFile.path);
       } else {
         const errorMsg = response.error || 'Failed to save file';

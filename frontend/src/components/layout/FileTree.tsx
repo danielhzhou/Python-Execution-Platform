@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppStore } from '../../stores/appStore';
-import { useEditorStore } from '../../stores/editorStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { fileApi } from '../../lib/api';
 import { CreateFileModal } from '../common/CreateFileModal';
+import { useOptimizedFileLoader } from '../../hooks/useOptimizedFileLoader';
 
 import { 
   File, 
@@ -31,9 +31,16 @@ export function FileTree({ className }: { className?: string }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creatingFile, setCreatingFile] = useState(false);
   
-  const { currentContainer, setCurrentFile, setError } = useAppStore();
-  const { setContent, setLanguage, setDirty } = useEditorStore();
+  const { currentContainer, setError } = useAppStore();
   const { currentDirectory } = useTerminalStore();
+  
+  // Use optimized file loader
+  const { 
+    debouncedLoadFile, 
+    smartPreload, 
+    loadingState,
+    cacheStats 
+  } = useOptimizedFileLoader();
 
   // Fetch files from Docker container with retry logic
   const fetchContainerFiles = useCallback(async (retryCount = 0) => {
@@ -164,59 +171,40 @@ export function FileTree({ className }: { className?: string }) {
     return tree;
   };
 
-  // Load file content into editor
+  // Optimized file loading with caching and smart preloading
   const loadFile = useCallback(async (filePath: string) => {
     if (!currentContainer?.id) return;
 
     try {
-      console.log('📖 Loading file:', filePath);
+      console.log('📖 Loading file (optimized):', filePath);
       
-      const result = await fileApi.get(currentContainer.id, filePath);
+      // Use debounced loader to prevent rapid API calls
+      const result = await debouncedLoadFile(filePath);
       
-      if (!result.success) {
+      if (result.success) {
+        setSelectedFile(filePath);
+        
+        // Trigger smart preloading of related files (use current fileTree state)
+        // Don't include fileTree in dependencies to avoid infinite loops
+        const currentTree = fileTree;
+        if (currentTree.length > 0) {
+          // Use setTimeout to avoid blocking the UI and terminal
+          setTimeout(() => {
+            smartPreload(filePath, currentTree);
+          }, 100);
+        }
+        
+        console.log(`✅ File loaded ${result.fromCache ? '(from cache)' : '(from API)'} in ${result.loadTime.toFixed(1)}ms`);
+      } else {
         console.error('📛 Failed to load file:', result.error);
-        throw new Error(typeof result.error === 'string' ? result.error : 'Failed to load file');
+        setError(`Failed to load file: ${filePath}`);
       }
-      
-      const fileData = result.data;
-      
-      // Update editor with file content
-      setContent(fileData.content);
-      setLanguage(getLanguageFromPath(filePath));
-      setDirty(false);
-      
-      // Update app state
-      setCurrentFile({
-        id: `${currentContainer.id}:${filePath}`,
-        name: filePath.split('/').pop() || 'untitled',
-        path: filePath,
-        content: fileData.content,
-        language: getLanguageFromPath(filePath)
-      });
-      
-      setSelectedFile(filePath);
       
     } catch (error) {
       console.error('Failed to load file:', error);
       setError(`Failed to load file: ${filePath}`);
     }
-  }, [currentContainer?.id, setContent, setLanguage, setDirty, setCurrentFile, setError]);
-
-  // Get language from file extension
-  const getLanguageFromPath = (path: string): string => {
-    const extension = path.split('.').pop()?.toLowerCase();
-    switch (extension) {
-      case 'py': return 'python';
-      case 'js': return 'javascript';
-      case 'ts': return 'typescript';
-      case 'json': return 'json';
-      case 'md': return 'markdown';
-      case 'txt': return 'plaintext';
-      case 'yaml':
-      case 'yml': return 'yaml';
-      default: return 'plaintext';
-    }
-  };
+  }, [currentContainer?.id, debouncedLoadFile, smartPreload, setError]);
 
   // Toggle directory expansion
   const toggleDirectory = useCallback((path: string) => {
@@ -332,16 +320,25 @@ export function FileTree({ className }: { className?: string }) {
 
   // Listen for workspace file changes only (not directory navigation)
   useEffect(() => {
+    let refreshTimeout: NodeJS.Timeout | null = null;
+    
     const handleFilesystemChange = (event: CustomEvent) => {
       const { commandType } = event.detail;
       console.log('📁 FileTree received filesystem change event:', event.detail);
       
       // Only refresh for commands that actually affect workspace files
       if (['create_file', 'create_dir', 'delete', 'move_copy', 'extract', 'git_operations'].includes(commandType)) {
-        // Refresh file tree with a small delay to allow command to complete
-        setTimeout(() => {
+        // Clear any pending refresh to avoid multiple rapid refreshes
+        if (refreshTimeout) {
+          clearTimeout(refreshTimeout);
+        }
+        
+        // Refresh file tree with a delay to allow command to complete and debounce rapid changes
+        refreshTimeout = setTimeout(() => {
+          console.log('🔄 Refreshing file tree due to filesystem change');
           fetchContainerFiles();
-        }, 1000);
+          refreshTimeout = null;
+        }, 1500); // Increased delay to 1.5s for better debouncing
       }
     };
 
@@ -350,6 +347,9 @@ export function FileTree({ className }: { className?: string }) {
 
     // Cleanup
     return () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
       window.removeEventListener('filesystem-change', handleFilesystemChange as EventListener);
     };
   }, [fetchContainerFiles]);
@@ -424,6 +424,14 @@ export function FileTree({ className }: { className?: string }) {
     }
   };
 
+  // Memoize performance stats to prevent unnecessary re-renders
+  const performanceStats = useMemo(() => {
+    if (cacheStats.hitRate > 0) {
+      return `Cache: ${cacheStats.hitRate}% hit rate, ${cacheStats.memoryUsage}`;
+    }
+    return null;
+  }, [cacheStats.hitRate, cacheStats.memoryUsage]);
+
   return (
     <div className={`flex flex-col h-full bg-[#252526] ${className}`}>
       {/* File Tree Header - VS Code Style */}
@@ -456,6 +464,21 @@ export function FileTree({ className }: { className?: string }) {
           </button>
         </div>
       </div>
+      
+      {/* Performance indicator */}
+      {performanceStats && (
+        <div className="px-3 py-1 text-xs text-white/60 border-b border-white/5 bg-[#1e1e1e]">
+          {performanceStats}
+        </div>
+      )}
+      
+      {/* Loading indicator */}
+      {loadingState.isLoading && (
+        <div className="px-3 py-2 text-xs text-blue-400 border-b border-white/5 bg-[#1e1e1e] flex items-center gap-2">
+          <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+          Loading file...
+        </div>
+      )}
 
       {/* File Tree Content */}
       <div className="flex-1 overflow-auto min-h-0">

@@ -7,6 +7,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { validatePythonSyntax } from '../../lib/utils';
+import { monacoModelManager } from '../../lib/monacoModelManager';
 
 
 interface MonacoEditorProps {
@@ -138,6 +139,9 @@ export function MonacoEditor({ className, executeCodeRef }: MonacoEditorProps) {
       editorRef.current = editor;
       setIsMonacoLoaded(true);
 
+      // Register editor with model manager for optimized model switching
+      monacoModelManager.setEditor(editor);
+
       // Configure editor options
       editor.updateOptions({
         fontSize,
@@ -183,12 +187,22 @@ export function MonacoEditor({ className, executeCodeRef }: MonacoEditorProps) {
         console.error('Error setting up Monaco keyboard shortcuts:', error);
       }
 
-      // Focus the editor
-      try {
-        editor.focus();
-      } catch (error) {
-        console.warn('Error focusing editor:', error);
-      }
+                // Focus the editor only if no other element is actively focused (avoid stealing terminal focus)
+          try {
+            const activeElement = document.activeElement;
+            const isTerminalFocused = activeElement && (
+              activeElement.classList.contains('xterm-helper-textarea') ||
+              activeElement.closest('.xterm-screen')
+            );
+            
+            if (!isTerminalFocused) {
+              editor.focus();
+            } else {
+              console.log('Terminal is focused, not stealing focus from editor');
+            }
+          } catch (error) {
+            console.warn('Error focusing editor:', error);
+          }
 
       setIsEditorReady(true);
     } catch (error) {
@@ -239,7 +253,20 @@ export function MonacoEditor({ className, executeCodeRef }: MonacoEditorProps) {
     }
   }, [fontSize, wordWrap, minimap, isEditorReady]);
 
+  // Cleanup effect to save editor state and manage model lifecycle
+  useEffect(() => {
+    return () => {
+      // Save current editor state before cleanup
+      monacoModelManager.saveEditorState();
+    };
+  }, []);
 
+  // Save editor state when current file changes
+  useEffect(() => {
+    if (currentFile) {
+      monacoModelManager.saveEditorState();
+    }
+  }, [currentFile?.path]);
 
   return (
     <div className={`flex flex-col h-full bg-[#1e1e1e] ${className}`}>

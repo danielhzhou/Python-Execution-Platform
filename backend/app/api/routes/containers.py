@@ -493,6 +493,15 @@ async def save_container_file(
         container = await get_docker_container(session)
         
         try:
+            # Check if file exists BEFORE writing to determine if this is a new file creation
+            file_existed_before = False
+            try:
+                container.execute(["test", "-f", request.path])
+                file_existed_before = True
+                logger.info(f"📝 Updating existing file: {request.path}")
+            except:
+                logger.info(f"📄 Creating new file: {request.path}")
+            
             # Create directory if needed
             dir_path = os.path.dirname(request.path)
             if dir_path and dir_path != '/':
@@ -518,19 +527,23 @@ async def save_container_file(
             size = len(request.content.encode('utf-8'))
             logger.info(f"✅ Successfully saved file {request.path} ({size} bytes)")
             
-            # Notify WebSocket clients about file change
-            try:
-                import asyncio
-                asyncio.create_task(
-                    websocket_service.manager._notify_filesystem_change(
-                        container_id, 
-                        "create_file", 
-                        f"API file save: {request.path}"
+            # Only notify about filesystem change if this is a NEW file creation
+            # File saves/updates don't need to refresh the file tree since they don't change structure
+            if not file_existed_before:
+                try:
+                    import asyncio
+                    asyncio.create_task(
+                        websocket_service.manager._notify_filesystem_change(
+                            container_id, 
+                            "create_file", 
+                            f"New file created: {request.path}"
+                        )
                     )
-                )
-                logger.info(f"📡 Sent filesystem change notification for {request.path}")
-            except Exception as notify_error:
-                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+                    logger.info(f"📡 Sent filesystem change notification for NEW file: {request.path}")
+                except Exception as notify_error:
+                    logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            else:
+                logger.info(f"📝 File update - no tree refresh needed: {request.path}")
             
             return ContainerFileResponse(
                 path=request.path,
