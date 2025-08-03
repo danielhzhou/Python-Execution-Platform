@@ -4,7 +4,12 @@ import type {
   User, 
   ContainerResponse, 
   ContainerCreateRequest,
-  ContainerStatusResponse 
+  ContainerStatusResponse,
+  Submission,
+  SubmissionDetail,
+  CreateSubmissionRequest,
+  SubmitFilesRequest,
+  ReviewSubmissionRequest
 } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
@@ -183,6 +188,71 @@ export const projectApi = {
         title,
         description,
       }),
+    })
+  },
+}
+
+// Submission API
+export const submissionApi = {
+  // Submitter endpoints
+  createSubmission: (request: CreateSubmissionRequest): Promise<ApiResponse<Submission>> => {
+    return apiRequest('/submissions/create', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  },
+
+  uploadFiles: (request: SubmitFilesRequest): Promise<ApiResponse<{ message: string }>> => {
+    return apiRequest('/submissions/upload-files', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  },
+
+  submitForReview: (submissionId: string): Promise<ApiResponse<{ message: string }>> => {
+    return apiRequest(`/submissions/submit/${submissionId}`, {
+      method: 'POST',
+    })
+  },
+
+  getMySubmissions: (): Promise<ApiResponse<Submission[]>> => {
+    return apiRequest('/submissions/my-submissions')
+  },
+
+  getSubmissionDetails: (submissionId: string): Promise<ApiResponse<SubmissionDetail>> => {
+    return apiRequest(`/submissions/${submissionId}/details`)
+  },
+
+  // Reviewer endpoints
+  getSubmissionsForReview: (): Promise<ApiResponse<Submission[]>> => {
+    return apiRequest('/submissions/for-review')
+  },
+
+  reviewSubmission: (request: ReviewSubmissionRequest): Promise<ApiResponse<{ message: string }>> => {
+    return apiRequest('/submissions/review', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  },
+
+  getApprovedSubmissions: (): Promise<ApiResponse<any[]>> => {
+    return apiRequest('/submissions/approved')
+  },
+
+  downloadSubmission: (submissionId: string): Promise<Response> => {
+    const token = getAuthToken()
+    return fetch(`${API_BASE_URL}/submissions/${submissionId}/download`, {
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    })
+  },
+
+  // Admin endpoints
+  updateUserRole: (userId: string, role: string): Promise<ApiResponse<{ message: string }>> => {
+    return apiRequest(`/submissions/users/${userId}/role`, {
+      method: 'POST',
+      body: JSON.stringify({ role }),
     })
   },
 }

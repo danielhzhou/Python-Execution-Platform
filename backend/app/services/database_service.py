@@ -349,34 +349,6 @@ class DatabaseService:
             )
             return list(session.exec(statement).all())
     
-    # Submission operations
-    async def create_submission(self, user_id: str, project_id: str, 
-                              title: str, description: Optional[str] = None) -> Submission:
-        """Create a submission"""
-        with get_db_session() as session:
-            submission = Submission(
-                owner_id=user_id,
-                project_id=project_id,
-                title=title,
-                description=description,
-                status=SubmissionStatus.DRAFT.value
-            )
-            session.add(submission)
-            session.commit()
-            session.refresh(submission)
-            return submission
-    
-    async def get_submission(self, submission_id: str) -> Optional[Submission]:
-        """Get a submission by ID"""
-        with get_db_session() as session:
-            return session.get(Submission, submission_id)
-    
-    async def get_user_submissions(self, user_id: str) -> List[Submission]:
-        """Get all submissions for a user"""
-        with get_db_session() as session:
-            statement = select(Submission).where(Submission.owner_id == user_id)
-            return list(session.exec(statement).all())
-    
     async def update_submission(self, submission_id: str, **updates) -> Optional[Submission]:
         """Update a submission"""
         with get_db_session() as session:
@@ -402,53 +374,7 @@ class DatabaseService:
             submitted_at=datetime.utcnow()
         )
     
-    # Submission file operations
-    async def create_submission_file(self, submission_id: str, file_path: str,
-                                   file_name: str, content: str,
-                                   diff: Optional[str] = None) -> SubmissionFile:
-        """Create a submission file"""
-        with get_db_session() as session:
-            submission_file = SubmissionFile(
-                submission_id=submission_id,
-                file_path=file_path,
-                file_name=file_name,
-                content=content,
-                diff=diff
-            )
-            session.add(submission_file)
-            session.commit()
-            session.refresh(submission_file)
-            return submission_file
-    
-    async def get_submission_files(self, submission_id: str) -> List[SubmissionFile]:
-        """Get all files for a submission"""
-        with get_db_session() as session:
-            statement = select(SubmissionFile).where(SubmissionFile.submission_id == submission_id)
-            return list(session.exec(statement).all())
-    
-    # Submission review operations
-    async def create_submission_review(self, submission_id: str, reviewer_id: str,
-                                     comment: str, file_path: Optional[str] = None,
-                                     line_number: Optional[int] = None) -> SubmissionReview:
-        """Create a submission review"""
-        with get_db_session() as session:
-            review = SubmissionReview(
-                submission_id=submission_id,
-                reviewer_id=reviewer_id,
-                comment=comment,
-                file_path=file_path,
-                line_number=line_number
-            )
-            session.add(review)
-            session.commit()
-            session.refresh(review)
-            return review
-    
-    async def get_submission_reviews(self, submission_id: str) -> List[SubmissionReview]:
-        """Get all reviews for a submission"""
-        with get_db_session() as session:
-            statement = select(SubmissionReview).where(SubmissionReview.submission_id == submission_id)
-            return list(session.exec(statement).all())
+    # Old duplicate submission file/review methods removed - using newer ones below
     
     # Cleanup operations
     async def cleanup_expired_sessions(self, timeout_seconds: int = 1800) -> int:
@@ -536,8 +462,7 @@ class DatabaseService:
         content: str,
         storage_path: Optional[str] = None,
         file_size: Optional[int] = None,
-        mime_type: Optional[str] = None,
-        diff: Optional[str] = None
+        mime_type: Optional[str] = None
     ) -> SubmissionFile:
         """Create a submission file record"""
         with get_db_session() as session:
@@ -548,8 +473,7 @@ class DatabaseService:
                 content=content,
                 storage_path=storage_path,
                 file_size=file_size,
-                mime_type=mime_type,
-                diff=diff
+                mime_type=mime_type
             )
             session.add(submission_file)
             session.commit()

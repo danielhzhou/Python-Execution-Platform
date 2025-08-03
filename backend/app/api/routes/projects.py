@@ -263,7 +263,7 @@ async def create_submission(
         
         return SubmissionResponse(
             id=str(submission.id),  # Convert UUID to string
-            user_id=str(submission.owner_id),  # Convert UUID to string
+            user_id=str(submission.submitter_id),  # Convert UUID to string
             project_id=str(submission.project_id),  # Convert UUID to string
             title=submission.title,
             description=submission.description,
@@ -291,7 +291,7 @@ async def list_submissions(
         return [
             {
                 "id": s.id,
-                "user_id": s.owner_id,
+                "user_id": s.submitter_id,
                 "project_id": s.project_id,
                 "title": s.title,
                 "description": s.description,
@@ -326,7 +326,7 @@ async def get_submission(
         
         return {
             "id": submission.id,
-            "user_id": submission.owner_id,
+            "user_id": submission.submitter_id,
             "project_id": submission.project_id,
             "title": submission.title,
             "description": submission.description,
@@ -408,7 +408,7 @@ async def submit_for_review(
             raise HTTPException(status_code=404, detail="Submission not found")
         
         # Check if user owns this submission
-        if submission.owner_id != user_id:
+        if submission.submitter_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Update status to submitted

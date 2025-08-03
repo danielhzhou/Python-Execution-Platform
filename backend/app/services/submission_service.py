@@ -3,10 +3,8 @@ Submission service for handling code submissions and reviews
 """
 import logging
 import os
-import zipfile
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from io import BytesIO
 
 from app.core.supabase import get_supabase_client
 from app.services.database_service import db_service
@@ -48,56 +46,89 @@ class SubmissionService:
         files: List[Dict[str, Any]]
     ) -> bool:
         """
-        Upload files for a submission to Supabase storage
+        Upload files for a submission to Supabase storage as individual files
         files format: [{"path": str, "content": str, "name": str}]
         """
         try:
-            # Create a zip file containing all submission files
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                for file_data in files:
-                    zip_file.writestr(file_data["path"], file_data["content"])
+            uploaded_files = []
             
-            zip_buffer.seek(0)
-            zip_content = zip_buffer.getvalue()
-            
-            # Generate storage path
-            storage_path = f"pending/{submission_id}/submission.zip"
-            
-            # Upload to Supabase Storage
-            result = self.supabase.storage.from_(self.bucket_name).upload(
-                path=storage_path,
-                file=zip_content,
-                file_options={
-                    "content-type": "application/zip",
-                    "upsert": True
-                }
-            )
-            
-            if result.error:
-                logger.error(f"Failed to upload submission files: {result.error}")
-                return False
-            
-            # Update submission with storage path
-            await db_service.update_submission(submission_id, storage_path=storage_path)
-            
-            # Create database records for each file
+            # Upload each file individually
             for file_data in files:
+                # Generate storage path for individual file
+                # Use file path but sanitize it for storage
+                sanitized_path = file_data["path"].replace("/", "_").replace("\\", "_")
+                storage_path = f"pending/{submission_id}/{sanitized_path}"
+                
+                # Convert content to bytes
+                file_content = file_data["content"].encode('utf-8')
+                
+                # Determine MIME type based on file extension
+                mime_type = self._get_mime_type(file_data["name"])
+                
+                # Upload to Supabase Storage
+                result = self.supabase.storage.from_(self.bucket_name).upload(
+                    path=storage_path,
+                    file=file_content,
+                    file_options={
+                        "content-type": mime_type,
+                        "upsert": "true"
+                    }
+                )
+                
+                # Check if upload was successful
+                if not result:
+                    logger.error(f"Failed to upload file {file_data['name']}: No response")
+                    continue
+                
+                # Create database record for this file
                 await db_service.create_submission_file(
                     submission_id=submission_id,
                     file_path=file_data["path"],
                     file_name=file_data["name"],
                     content=file_data["content"],
                     storage_path=storage_path,
-                    file_size=len(file_data["content"].encode('utf-8')),
-                    mime_type="text/plain"
+                    file_size=len(file_content),
+                    mime_type=mime_type
                 )
+                
+                uploaded_files.append(storage_path)
+            
+            if not uploaded_files:
+                logger.error("No files were successfully uploaded")
+                return False
+            
+            # Update submission with folder path (not specific file)
+            folder_path = f"pending/{submission_id}/"
+            await db_service.update_submission(submission_id, storage_path=folder_path)
             
             return True
             
         except Exception as e:
             logger.error(f"Error uploading submission files: {e}")
             return False
+    
+    def _get_mime_type(self, filename: str) -> str:
+        """Get MIME type based on file extension"""
+        extension = filename.lower().split('.')[-1] if '.' in filename else ''
+        mime_types = {
+            'py': 'text/x-python',
+            'js': 'text/javascript',
+            'ts': 'text/typescript',
+            'html': 'text/html',
+            'css': 'text/css',
+            'json': 'application/json',
+            'md': 'text/markdown',
+            'txt': 'text/plain',
+            'yml': 'text/yaml',
+            'yaml': 'text/yaml',
+            'xml': 'text/xml',
+            'sql': 'text/sql',
+            'sh': 'text/x-shellscript',
+            'dockerfile': 'text/plain',
+            'gitignore': 'text/plain',
+            'env': 'text/plain',
+        }
+        return mime_types.get(extension, 'text/plain')
     
     async def submit_for_review(self, submission_id: str) -> bool:
         """Submit a submission for review"""
@@ -183,8 +214,9 @@ class SubmissionService:
             
             # Download the file
             result = self.supabase.storage.from_(self.bucket_name).download(submission.storage_path)
-            if result.error:
-                logger.error(f"Failed to download submission for moving: {result.error}")
+            # Check if download was successful
+            if not result:
+                logger.error(f"Failed to download submission for moving: No response")
                 return
             
             # Upload to new location
@@ -193,18 +225,20 @@ class SubmissionService:
                 file=result.data,
                 file_options={
                     "content-type": "application/zip",
-                    "upsert": True
+                    "upsert": "true"
                 }
             )
             
-            if upload_result.error:
-                logger.error(f"Failed to upload to new location: {upload_result.error}")
+            # Check if upload was successful
+            if not upload_result:
+                logger.error(f"Failed to upload to new location: No response")
                 return
             
             # Delete from old location
             delete_result = self.supabase.storage.from_(self.bucket_name).remove([submission.storage_path])
-            if delete_result.error:
-                logger.warning(f"Failed to delete old file: {delete_result.error}")
+            # Check if delete was successful (non-critical)
+            if not delete_result:
+                logger.warning(f"Failed to delete old file: No response")
             
             # Update submission storage path
             await db_service.update_submission(submission.id, storage_path=new_path)
@@ -220,8 +254,9 @@ class SubmissionService:
                 return None
             
             result = self.supabase.storage.from_(self.bucket_name).download(submission.storage_path)
-            if result.error:
-                logger.error(f"Failed to download submission: {result.error}")
+            # Check if download was successful
+            if not result:
+                logger.error(f"Failed to download submission: No response")
                 return None
             
             return result.data

@@ -37,12 +37,13 @@ class StorageService:
                 file=file_content,
                 file_options={
                     "content-type": content_type,
-                    "upsert": True  # Overwrite if exists
+                    "upsert": "true"  # Overwrite if exists
                 }
             )
             
-            if result.error:
-                logger.error(f"Failed to upload file to storage: {result.error}")
+            # Check if upload was successful
+            if not result:
+                logger.error(f"Failed to upload file to storage: No response")
                 return None
             
             # Create or update database record
@@ -85,8 +86,9 @@ class StorageService:
             
             result = self.supabase.storage.from_(self.bucket_name).download(storage_path)
             
-            if result.error:
-                logger.error(f"Failed to download file: {result.error}")
+            # Check if download was successful
+            if not result:
+                logger.error(f"Failed to download file: No response")
                 return None
             
             return result.data
@@ -102,8 +104,9 @@ class StorageService:
             
             result = self.supabase.storage.from_(self.bucket_name).remove([storage_path])
             
-            if result.error:
-                logger.error(f"Failed to delete file: {result.error}")
+            # Check if delete was successful
+            if not result:
+                logger.error(f"Failed to delete file: No response")
                 return False
             
             return True
@@ -122,8 +125,9 @@ class StorageService:
                 expires_in
             )
             
-            if result.error:
-                logger.error(f"Failed to create signed URL: {result.error}")
+            # Check if signed URL creation was successful
+            if not result:
+                logger.error(f"Failed to create signed URL: No response")
                 return None
             
             return result.data.get("signedURL")
@@ -139,8 +143,9 @@ class StorageService:
             
             result = self.supabase.storage.from_(self.bucket_name).list(folder_path)
             
-            if result.error:
-                logger.error(f"Failed to list files: {result.error}")
+            # Check if list was successful
+            if not result:
+                logger.error(f"Failed to list files: No response")
                 return []
             
             return result.data or []

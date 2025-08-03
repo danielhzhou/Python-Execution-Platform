@@ -17,11 +17,21 @@ def setup_submission_bucket():
     try:
         # Create the bucket
         print("Creating submissions bucket...")
-        bucket_result = supabase.storage.create_bucket(bucket_name, {
-            "public": False,  # Private bucket
-            "file_size_limit": 50 * 1024 * 1024,  # 50MB limit
-            "allowed_mime_types": ["application/zip", "text/plain", "application/json"]
-        })
+        
+        # First check if bucket already exists
+        try:
+            bucket_list = supabase.storage.list_buckets()
+            existing_buckets = [b.name for b in bucket_list.data] if bucket_list.data else []
+            
+            if bucket_name in existing_buckets:
+                print("✓ Bucket already exists")
+                bucket_result = type('obj', (object,), {'error': None})()  # Mock success
+            else:
+                # Create bucket with minimal parameters
+                bucket_result = supabase.storage.create_bucket(bucket_name)
+        except Exception as e:
+            print(f"❌ Error with bucket operations: {e}")
+            return False
         
         if bucket_result.error:
             if "already exists" in str(bucket_result.error).lower():
@@ -42,7 +52,7 @@ def setup_submission_bucket():
             upload_result = supabase.storage.from_(bucket_name).upload(
                 path=placeholder_path,
                 file=b"# This file maintains the folder structure\n",
-                file_options={"content-type": "text/plain", "upsert": True}
+                file_options={"content-type": "text/plain", "upsert": "true"}
             )
             
             if upload_result.error:
@@ -53,9 +63,10 @@ def setup_submission_bucket():
         print("\n✅ Submission storage setup completed!")
         print("\nFolder structure:")
         print("submissions/")
-        print("├── pending/     # Draft and submitted files")
-        print("├── approved/    # Approved submissions")
-        print("└── rejected/    # Rejected submissions")
+        print("├── pending/{submission_id}/submission.zip     # Submitted files awaiting review")
+        print("├── approved/{submission_id}/submission.zip    # Approved submissions")
+        print("└── rejected/{submission_id}/submission.zip    # Rejected submissions")
+        print("\nNote: The {submission_id} folders are created automatically when submissions are made.")
         
         return True
         

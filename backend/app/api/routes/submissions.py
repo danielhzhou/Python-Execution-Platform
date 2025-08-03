@@ -12,7 +12,7 @@ from app.services.submission_service import submission_service
 from app.services.database_service import db_service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/submissions", tags=["submissions"])
+router = APIRouter(tags=["submissions"])
 
 
 # Request/Response Models
@@ -106,9 +106,23 @@ async def create_submission(
 ):
     """Create a new submission"""
     try:
+        # Check if project exists, create a default one if not
+        project = await db_service.get_project(request.project_id)
+        if not project:
+            # Create a default project for this submission
+            project = await db_service.create_project(
+                name=f"Container Project {request.project_id[:8]}",
+                description="Auto-created project for submission",
+                owner_id=current_user.id
+            )
+            # Use the new project ID
+            project_id = project.id
+        else:
+            project_id = request.project_id
+        
         submission = await submission_service.create_submission(
             submitter_id=current_user.id,
-            project_id=request.project_id,
+            project_id=project_id,
             title=request.title,
             description=request.description
         )
@@ -120,15 +134,15 @@ async def create_submission(
             )
         
         return SubmissionResponse(
-            id=submission.id,
+            id=str(submission.id),  # Convert UUID to string
             title=submission.title,
             description=submission.description,
             status=submission.status,
-            submitter_id=submission.submitter_id,
-            project_id=submission.project_id,
+            submitter_id=str(submission.submitter_id),  # Convert UUID to string
+            project_id=str(submission.project_id),  # Convert UUID to string
             submitted_at=submission.submitted_at.isoformat() if submission.submitted_at else None,
             reviewed_at=submission.reviewed_at.isoformat() if submission.reviewed_at else None,
-            reviewer_id=submission.reviewer_id,
+            reviewer_id=str(submission.reviewer_id) if submission.reviewer_id else None,  # Convert UUID to string
             created_at=submission.created_at.isoformat(),
             updated_at=submission.updated_at.isoformat()
         )
@@ -239,15 +253,15 @@ async def get_my_submissions(
         
         return [
             SubmissionResponse(
-                id=submission.id,
+                id=str(submission.id),  # Convert UUID to string
                 title=submission.title,
                 description=submission.description,
                 status=submission.status,
-                submitter_id=submission.submitter_id,
-                project_id=submission.project_id,
+                submitter_id=str(submission.submitter_id),  # Convert UUID to string
+                project_id=str(submission.project_id),  # Convert UUID to string
                 submitted_at=submission.submitted_at.isoformat() if submission.submitted_at else None,
                 reviewed_at=submission.reviewed_at.isoformat() if submission.reviewed_at else None,
-                reviewer_id=submission.reviewer_id,
+                reviewer_id=str(submission.reviewer_id) if submission.reviewer_id else None,  # Convert UUID to string
                 created_at=submission.created_at.isoformat(),
                 updated_at=submission.updated_at.isoformat()
             )
@@ -273,15 +287,15 @@ async def get_submissions_for_review(
         
         return [
             SubmissionResponse(
-                id=submission.id,
+                id=str(submission.id),  # Convert UUID to string
                 title=submission.title,
                 description=submission.description,
                 status=submission.status,
-                submitter_id=submission.submitter_id,
-                project_id=submission.project_id,
+                submitter_id=str(submission.submitter_id),  # Convert UUID to string
+                project_id=str(submission.project_id),  # Convert UUID to string
                 submitted_at=submission.submitted_at.isoformat() if submission.submitted_at else None,
                 reviewed_at=submission.reviewed_at.isoformat() if submission.reviewed_at else None,
-                reviewer_id=submission.reviewer_id,
+                reviewer_id=str(submission.reviewer_id) if submission.reviewer_id else None,  # Convert UUID to string
                 created_at=submission.created_at.isoformat(),
                 updated_at=submission.updated_at.isoformat()
             )
@@ -322,21 +336,21 @@ async def get_submission_details(
         
         return SubmissionDetailResponse(
             submission=SubmissionResponse(
-                id=submission.id,
+                id=str(submission.id),  # Convert UUID to string
                 title=submission.title,
                 description=submission.description,
                 status=submission.status,
-                submitter_id=submission.submitter_id,
-                project_id=submission.project_id,
+                submitter_id=str(submission.submitter_id),  # Convert UUID to string
+                project_id=str(submission.project_id),  # Convert UUID to string
                 submitted_at=submission.submitted_at.isoformat() if submission.submitted_at else None,
                 reviewed_at=submission.reviewed_at.isoformat() if submission.reviewed_at else None,
-                reviewer_id=submission.reviewer_id,
+                reviewer_id=str(submission.reviewer_id) if submission.reviewer_id else None,  # Convert UUID to string
                 created_at=submission.created_at.isoformat(),
                 updated_at=submission.updated_at.isoformat()
             ),
             files=[
                 SubmissionFileResponse(
-                    id=file.id,
+                    id=str(file.id),  # Convert UUID to string
                     file_path=file.file_path,
                     file_name=file.file_name,
                     content=file.content,
@@ -347,8 +361,8 @@ async def get_submission_details(
             ],
             reviews=[
                 SubmissionReviewResponse(
-                    id=review.id,
-                    reviewer_id=review.reviewer_id,
+                    id=str(review.id),  # Convert UUID to string
+                    reviewer_id=str(review.reviewer_id),  # Convert UUID to string
                     status=review.status,
                     comment=review.comment,
                     file_path=review.file_path,

@@ -53,8 +53,8 @@ class User(SQLModel, table=True):
     # Relationships
     projects: List["Project"] = Relationship(back_populates="owner")
     terminal_sessions: List["TerminalSession"] = Relationship(back_populates="user")
-    submissions: List["Submission"] = Relationship(back_populates="submitter")
-    reviews: List["SubmissionReview"] = Relationship(back_populates="reviewer")
+    # Note: submissions and reviews relationships removed due to multiple FK paths
+    # Access via: db.query(Submission).filter(Submission.submitter_id == user.id)
 
 
 class Project(SQLModel, table=True):
@@ -156,7 +156,9 @@ class Submission(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column=Column(DateTime(timezone=True)))
     
     # Relationships
-    submitter: User = Relationship(back_populates="submissions")
+    # Note: submitter and reviewer relationships removed due to multiple FK paths
+    # Access submitter via: db.query(User).filter(User.id == submission.submitter_id)
+    # Access reviewer via: db.query(User).filter(User.id == submission.reviewer_id)
     project: Project = Relationship(back_populates="submissions")
     files: List["SubmissionFile"] = Relationship(back_populates="submission")
     reviews: List["SubmissionReview"] = Relationship(back_populates="submission")
@@ -174,7 +176,6 @@ class SubmissionFile(SQLModel, table=True):
     storage_path: Optional[str] = None  # Path in Supabase storage for the file
     file_size: Optional[int] = None
     mime_type: Optional[str] = None
-    diff: Optional[str] = Field(sa_column=Column(Text))  # Git-style diff
     created_at: datetime = Field(default_factory=datetime.utcnow, sa_column=Column(DateTime(timezone=True)))
     
     # Relationships
@@ -198,7 +199,8 @@ class SubmissionReview(SQLModel, table=True):
     
     # Relationships
     submission: Submission = Relationship(back_populates="reviews")
-    reviewer: User = Relationship(back_populates="reviews")
+    # Note: reviewer relationship removed due to multiple FK paths in User model
+    # Access reviewer via: db.query(User).filter(User.id == review.reviewer_id)
 
 
 # API Response Models (Pydantic BaseModel)

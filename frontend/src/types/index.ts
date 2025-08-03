@@ -3,12 +3,14 @@
  */
 
 // User types
+export type UserRole = 'submitter' | 'reviewer' | 'admin';
+
 export interface User {
   id: string;
   email: string;
   full_name?: string;
   avatar_url?: string;
-  role?: 'learner' | 'reviewer' | 'admin';
+  role: UserRole;
   created_at?: string;
   updated_at?: string;
 }
@@ -118,6 +120,69 @@ export interface TerminalState {
   output: string[];
   isConnected: boolean;
   containerId: string | null;
+}
+
+// Submission types
+export type SubmissionStatus = 'draft' | 'submitted' | 'under_review' | 'approved' | 'rejected' | 'revision_requested';
+
+export interface SubmissionFile {
+  id: string;
+  file_path: string;
+  file_name: string;
+  content: string;
+  file_size?: number;
+  mime_type?: string;
+}
+
+export interface SubmissionReview {
+  id: string;
+  reviewer_id: string;
+  status: string;
+  comment: string;
+  file_path?: string;
+  line_number?: number;
+  created_at: string;
+}
+
+export interface Submission {
+  id: string;
+  title: string;
+  description?: string;
+  status: SubmissionStatus;
+  submitter_id: string;
+  project_id: string;
+  submitted_at?: string;
+  reviewed_at?: string;
+  reviewer_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubmissionDetail {
+  submission: Submission;
+  files: SubmissionFile[];
+  reviews: SubmissionReview[];
+}
+
+export interface CreateSubmissionRequest {
+  project_id: string;
+  title: string;
+  description?: string;
+}
+
+export interface SubmitFilesRequest {
+  submission_id: string;
+  files: Array<{
+    path: string;
+    content: string;
+    name: string;
+  }>;
+}
+
+export interface ReviewSubmissionRequest {
+  submission_id: string;
+  status: 'approved' | 'rejected';
+  comment: string;
 }
 
 // Application state types
