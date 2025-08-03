@@ -51,6 +51,9 @@ export function ResizablePanel({
     
     setSize(newSize);
     onResize?.(newSize);
+    
+    // Trigger resize event for components that need to know about layout changes
+    window.dispatchEvent(new Event('resize'));
   }, [isDragging, direction, minSize, maxSize, onResize]);
 
   const handleMouseUp = useCallback(() => {
@@ -107,10 +110,10 @@ export function ResizablePanel({
         ref={resizerRef}
         onMouseDown={handleMouseDown}
         className={cn(
-          'bg-border hover:bg-border/80 transition-colors flex-shrink-0 group',
+          'bg-border hover:bg-border/60 transition-colors flex-shrink-0 group',
           isHorizontal 
             ? 'w-1 cursor-col-resize hover:w-2' 
-            : 'h-1 cursor-row-resize hover:h-2',
+            : 'h-2 cursor-row-resize hover:h-3',
           isDragging && 'bg-primary',
           'relative'
         )}
@@ -118,11 +121,11 @@ export function ResizablePanel({
         {/* Visual indicator */}
         <div
           className={cn(
-            'absolute bg-muted-foreground/20 group-hover:bg-muted-foreground/40 transition-colors',
+            'absolute bg-muted-foreground/30 group-hover:bg-muted-foreground/60 transition-colors',
             isHorizontal 
               ? 'top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-8'
-              : 'top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 h-0.5 w-8',
-            isDragging && 'bg-primary/60'
+              : 'top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 h-1 w-12',
+            isDragging && 'bg-primary/80'
           )}
         />
       </div>

@@ -279,9 +279,13 @@ function App() {
               <div className="flex-1 flex flex-col min-h-0">
                 <ResizablePanel
                   direction="vertical"
-                  defaultSize={70}
-                  minSize={30}
-                  maxSize={85}
+                  defaultSize={60}
+                  minSize={20}
+                  maxSize={90}
+                  onResize={() => {
+                    // Trigger immediate window resize event for terminal
+                    window.dispatchEvent(new Event('resize'));
+                  }}
                 >
                   {/* Code Editor */}
                   <div className="h-full bg-[#1e1e1e]">
@@ -296,18 +300,6 @@ function App() {
                     <div className="h-9 bg-[#2d2d30] border-t border-border/30 flex items-center px-2 flex-shrink-0">
                       <div className="flex items-center gap-2">
                         <span className="px-3 py-1 text-sm text-white bg-[#1e1e1e] rounded-t-sm">Terminal</span>
-                      </div>
-                      <div className="ml-auto flex items-center gap-1">
-                        <button className="p-1 hover:bg-white/10 rounded text-white/70 hover:text-white" title="New Terminal">
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                        <button className="p-1 hover:bg-white/10 rounded text-white/70 hover:text-white" title="Close Panel">
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </button>
                       </div>
                     </div>
                     

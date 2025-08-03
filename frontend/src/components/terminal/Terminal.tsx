@@ -19,6 +19,21 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [isTerminalInitialized, setIsTerminalInitialized] = useState(false);
 
+  // Helper function to check if user is at the bottom of the terminal
+  const isAtBottom = (): boolean => {
+    if (!xtermRef.current) return true;
+    const terminal = xtermRef.current;
+    // Check if we're within 2 lines of the bottom
+    return terminal.buffer.active.viewportY >= terminal.buffer.active.length - terminal.rows - 2;
+  };
+
+  // Smart scroll to bottom - only if user is already near the bottom
+  const smartScrollToBottom = () => {
+    if (xtermRef.current && isAtBottom()) {
+      xtermRef.current.scrollToBottom();
+    }
+  };
+
   const {
     isConnected,
     theme,
@@ -73,7 +88,7 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
           fontFamily,
           cursorBlink: true,
           cursorStyle: 'block',
-          scrollback: 1000,
+          scrollback: 5000,
           tabStopWidth: 4,
           allowTransparency: false,
           macOptionIsMeta: true,
@@ -124,8 +139,8 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
                     rows: terminal.rows
                   });
                   
-                  // Scroll to bottom to ensure prompt is visible
-                  terminal.scrollToBottom();
+                  // Only scroll to bottom if user is already at the bottom
+                  smartScrollToBottom();
                 } else {
                   console.warn('Container not ready for fitting, retrying...');
                   setTimeout(fitTerminal, 50);
@@ -208,11 +223,9 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
                 }
               }
               
-              // Ensure terminal stays at bottom after input
+              // Only auto-scroll after input if user is at bottom
               setTimeout(() => {
-                if (terminal) {
-                  terminal.scrollToBottom();
-                }
+                smartScrollToBottom();
               }, 10);
             } catch (error) {
               console.error('Terminal input error:', error);
@@ -229,6 +242,43 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
             } catch (error) {
               console.warn('Terminal selection error:', error);
             }
+          });
+
+          // Add keyboard shortcuts for scrolling
+          terminal.attachCustomKeyEventHandler((event) => {
+            if (!terminal) return true;
+            
+            // Ctrl/Cmd + Home: Go to top
+            if ((event.ctrlKey || event.metaKey) && event.code === 'Home') {
+              terminal.scrollToTop();
+              return false;
+            }
+            // Ctrl/Cmd + End: Go to bottom
+            if ((event.ctrlKey || event.metaKey) && event.code === 'End') {
+              terminal.scrollToBottom();
+              return false;
+            }
+            // Page Up: Scroll up
+            if (event.code === 'PageUp') {
+              terminal.scrollPages(-1);
+              return false;
+            }
+            // Page Down: Scroll down
+            if (event.code === 'PageDown') {
+              terminal.scrollPages(1);
+              return false;
+            }
+            // Shift + Up: Scroll up by lines
+            if (event.shiftKey && event.code === 'ArrowUp') {
+              terminal.scrollLines(-3);
+              return false;
+            }
+            // Shift + Down: Scroll down by lines
+            if (event.shiftKey && event.code === 'ArrowDown') {
+              terminal.scrollLines(3);
+              return false;
+            }
+            return true;
           });
         }
       } catch (error) {
@@ -274,27 +324,53 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
     }
   }, [onSendCommandReady, wsSendCommand, isConnected]);
 
-  // Handle window resize to fit terminal
+  // Handle terminal container resize using ResizeObserver for better responsiveness
   useEffect(() => {
+    if (!isTerminalInitialized || !terminalRef.current || !fitAddonRef.current || !xtermRef.current) {
+      return;
+    }
+
     const handleResize = () => {
       if (fitAddonRef.current && xtermRef.current && terminalRef.current) {
         try {
-          // Add a small delay to ensure layout has stabilized
-          setTimeout(() => {
-            if (fitAddonRef.current && xtermRef.current) {
-              fitAddonRef.current.fit();
-              xtermRef.current.scrollToBottom();
-              console.log('🔄 Terminal resized and scrolled to bottom');
-            }
-          }, 100);
+          const container = terminalRef.current;
+          // Only resize if container has valid dimensions
+          if (container.clientWidth > 0 && container.clientHeight > 0) {
+            fitAddonRef.current.fit();
+            smartScrollToBottom();
+            console.log('🔄 Terminal resized:', {
+              width: container.clientWidth,
+              height: container.clientHeight,
+              cols: xtermRef.current.cols,
+              rows: xtermRef.current.rows
+            });
+          }
         } catch (error) {
           console.warn('Terminal resize error:', error);
         }
       }
     };
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    // Create ResizeObserver to watch for container size changes
+    const resizeObserver = new ResizeObserver(() => {
+      // Add a small delay to ensure layout has stabilized
+      setTimeout(handleResize, 50);
+    });
+
+    // Observe the terminal container
+    resizeObserver.observe(terminalRef.current);
+
+    // Also listen to window resize as fallback
+    const handleWindowResize = () => {
+      setTimeout(handleResize, 100);
+    };
+    
+    window.addEventListener('resize', handleWindowResize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', handleWindowResize);
+    };
   }, [isTerminalInitialized]);
 
   // Handle WebSocket messages (terminal output) and ensure visibility
@@ -302,13 +378,11 @@ export function Terminal({ className, onSendCommandReady }: TerminalProps) {
     if (xtermRef.current && isConnected) {
       // This would be handled by the WebSocket hook
       // Ensure terminal stays scrolled to bottom for new content
-      const terminal = xtermRef.current;
       
       // Add a mutation observer to detect when content is added
       const observer = new MutationObserver(() => {
-        if (terminal) {
-          terminal.scrollToBottom();
-        }
+        // Only auto-scroll for new content if user is at bottom
+        smartScrollToBottom();
       });
       
       // Observe the terminal element for changes
