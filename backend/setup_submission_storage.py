@@ -63,10 +63,16 @@ def setup_submission_bucket():
         print("\n✅ Submission storage setup completed!")
         print("\nFolder structure:")
         print("submissions/")
-        print("├── pending/{submission_id}/submission.zip     # Submitted files awaiting review")
-        print("├── approved/{submission_id}/submission.zip    # Approved submissions")
-        print("└── rejected/{submission_id}/submission.zip    # Rejected submissions")
-        print("\nNote: The {submission_id} folders are created automatically when submissions are made.")
+        print("├── pending/{submission_id}/")
+        print("│   ├── file1.py                              # Individual files")
+        print("│   ├── file2.js")
+        print("│   └── ...")
+        print("├── approved/{submission_id}/")
+        print("│   └── [individual files after approval]")
+        print("└── rejected/{submission_id}/")
+        print("    └── [individual files after rejection]")
+        print("\nNote: Files are stored individually, not as ZIP archives.")
+        print("Downloads create ZIP files on-the-fly from individual files.")
         
         return True
         

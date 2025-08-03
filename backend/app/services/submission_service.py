@@ -3,8 +3,10 @@ Submission service for handling code submissions and reviews
 """
 import logging
 import os
+import zipfile
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+from io import BytesIO
 
 from app.core.supabase import get_supabase_client
 from app.services.database_service import db_service
@@ -265,19 +267,32 @@ class SubmissionService:
             logger.error(f"Error moving submission files: {e}")
     
     async def download_submission_files(self, submission_id: str) -> Optional[bytes]:
-        """Download submission files as a zip"""
+        """Download submission files as a zip (created on-the-fly from individual files)"""
         try:
-            submission = await db_service.get_submission(submission_id)
-            if not submission or not submission.storage_path:
+            # Get all files for this submission
+            submission_files = await db_service.get_submission_files(submission_id)
+            if not submission_files:
+                logger.warning(f"No files found for submission {submission_id}")
                 return None
             
-            result = self.supabase.storage.from_(self.bucket_name).download(submission.storage_path)
-            # Check if download was successful
-            if not result:
-                logger.error(f"Failed to download submission: No response")
-                return None
+            # Create ZIP file in memory
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for file_record in submission_files:
+                    if not file_record.storage_path:
+                        continue
+                    
+                    # Download individual file from storage
+                    result = self.supabase.storage.from_(self.bucket_name).download(file_record.storage_path)
+                    if not result:
+                        logger.warning(f"Failed to download file {file_record.file_name}")
+                        continue
+                    
+                    # Add file to ZIP using original file path
+                    zip_file.writestr(file_record.file_path, result.data)
             
-            return result.data
+            zip_buffer.seek(0)
+            return zip_buffer.getvalue()
             
         except Exception as e:
             logger.error(f"Error downloading submission files: {e}")

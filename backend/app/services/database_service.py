@@ -485,6 +485,16 @@ class DatabaseService:
         with get_db_session() as session:
             return session.query(SubmissionFile).filter(SubmissionFile.submission_id == submission_id).all()
     
+    async def update_submission_file_storage_path(self, file_id: str, storage_path: str) -> bool:
+        """Update the storage path for a submission file"""
+        with get_db_session() as session:
+            file_record = session.query(SubmissionFile).filter(SubmissionFile.id == file_id).first()
+            if file_record:
+                file_record.storage_path = storage_path
+                session.commit()
+                return True
+            return False
+    
     async def create_submission_review(
         self, 
         submission_id: str, 
