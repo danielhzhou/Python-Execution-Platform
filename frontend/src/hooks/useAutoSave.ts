@@ -52,41 +52,45 @@ export function useAutoSave() {
       console.log('📥 Save response received:', response);
 
       if (response.success && response.data) {
-        // Update the file in the store if updateFile is available
-        if (updateFile && currentFile.id) {
-          updateFile(currentFile.id, {
-            content,
-            lastModified: new Date(),
-            size: content.length
-          });
-        }
-        
-        // Always update the current file with the latest content
-        setCurrentFile({
-          ...currentFile,
-          content,
-          lastModified: new Date(),
-          size: content.length
-        });
-        
+        // Immediately mark as saved to prevent blocking
         markSaved();
         lastSavedContent.current = content;
         setError(null);
         
-        // Update cache with saved content
-        if (currentContainer?.id && currentFile?.path) {
-          fileCache.set(
-            currentContainer.id, 
-            currentFile.path, 
-            content, 
-            currentFile.language || 'plaintext'
-          );
+        // Defer heavy operations to avoid blocking the UI thread and terminal input
+        setTimeout(() => {
+          // Update the file in the store if updateFile is available
+          if (updateFile && currentFile.id) {
+            updateFile(currentFile.id, {
+              content,
+              lastModified: new Date(),
+              size: content.length
+            });
+          }
           
-          // Mark model as saved in model manager
-          monacoModelManager.markModelSaved(currentContainer.id, currentFile.path);
-        }
-        
-        console.log('✅ File saved successfully:', currentFile.path);
+          // Always update the current file with the latest content
+          setCurrentFile({
+            ...currentFile,
+            content,
+            lastModified: new Date(),
+            size: content.length
+          });
+          
+          // Update cache with saved content
+          if (currentContainer?.id && currentFile?.path) {
+            fileCache.set(
+              currentContainer.id, 
+              currentFile.path, 
+              content, 
+              currentFile.language || 'plaintext'
+            );
+            
+            // Mark model as saved in model manager
+            monacoModelManager.markModelSaved(currentContainer.id, currentFile.path);
+          }
+          
+          console.log('✅ File saved successfully:', currentFile.path);
+        }, 0); // Defer to next event loop cycle
       } else {
         const errorMsg = response.error || 'Failed to save file';
         console.error('❌ File save failed:', {
