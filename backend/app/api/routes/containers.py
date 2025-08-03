@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.core.auth import get_current_user_id
 from app.models.container import ContainerCreateRequest, ContainerResponse, TerminalSession
 from app.services.container_service import container_service
+from app.services.websocket_service import websocket_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -517,6 +518,20 @@ async def save_container_file(
             size = len(request.content.encode('utf-8'))
             logger.info(f"✅ Successfully saved file {request.path} ({size} bytes)")
             
+            # Notify WebSocket clients about file change
+            try:
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "create_file", 
+                        f"API file save: {request.path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for {request.path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            
             return ContainerFileResponse(
                 path=request.path,
                 content=request.content,
@@ -567,6 +582,21 @@ async def delete_container_file(
                 raise HTTPException(status_code=500, detail="Failed to delete file")
             
             logger.info(f"Successfully deleted file {path}")
+            
+            # Notify WebSocket clients about file deletion
+            try:
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "delete", 
+                        f"API file delete: {path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for deleted file {path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            
             return {"message": "File deleted successfully"}
             
         except Exception as docker_error:
@@ -607,6 +637,21 @@ async def create_container_directory(
                 raise HTTPException(status_code=500, detail="Failed to create directory")
             
             logger.info(f"Successfully created directory {path}")
+            
+            # Notify WebSocket clients about directory creation
+            try:
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "create_dir", 
+                        f"API directory create: {path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for created directory {path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            
             return {"message": "Directory created successfully", "path": path}
             
         except Exception as docker_error:
@@ -658,6 +703,21 @@ async def rename_container_file(
                 raise HTTPException(status_code=500, detail="Failed to rename file")
             
             logger.info(f"Successfully renamed file from {old_path} to {new_path}")
+            
+            # Notify WebSocket clients about file rename/move
+            try:
+                import asyncio
+                asyncio.create_task(
+                    websocket_service.manager._notify_filesystem_change(
+                        container_id, 
+                        "move_copy", 
+                        f"API file rename: {old_path} -> {new_path}"
+                    )
+                )
+                logger.info(f"📡 Sent filesystem change notification for renamed file {old_path} -> {new_path}")
+            except Exception as notify_error:
+                logger.warning(f"Failed to send filesystem notification: {notify_error}")
+            
             return {"message": "File renamed successfully", "old_path": old_path, "new_path": new_path}
             
         except Exception as docker_error:

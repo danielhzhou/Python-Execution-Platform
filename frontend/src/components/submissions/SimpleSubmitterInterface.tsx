@@ -3,6 +3,7 @@ import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Spinner } from '../ui/spinner';
+import { SuccessModal, ErrorModal } from '../ui/modal';
 import { submissionApi } from '../../lib/api';
 import { useAppStore } from '../../stores/appStore';
 import type { Submission, SubmissionFile } from '../../types';
@@ -24,6 +25,9 @@ function CreateAndSubmitDialog({ isOpen, onClose, availableFiles, onSuccess }: C
   const [description, setDescription] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
   const { currentContainer } = useAppStore();
 
   const handleFileToggle = (filePath: string) => {
@@ -80,12 +84,13 @@ function CreateAndSubmitDialog({ isOpen, onClose, availableFiles, onSuccess }: C
         throw new Error(submitResponse.error || 'Failed to submit for review');
       }
 
-      alert('Submission created and submitted for review successfully!');
-      handleClose();
-      onSuccess();
+      setModalMessage('Your submission has been created and submitted for review successfully!');
+      setShowSuccessModal(true);
     } catch (error) {
       console.error('Error creating submission:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setModalMessage(errorMessage);
+      setShowErrorModal(true);
     } finally {
       setSubmitting(false);
     }
@@ -96,6 +101,16 @@ function CreateAndSubmitDialog({ isOpen, onClose, availableFiles, onSuccess }: C
     setDescription('');
     setSelectedFiles(new Set());
     onClose();
+  };
+
+  const handleSuccessModalClose = () => {
+    setShowSuccessModal(false);
+    handleClose();
+    onSuccess();
+  };
+
+  const handleErrorModalClose = () => {
+    setShowErrorModal(false);
   };
 
   if (!isOpen) return null;
@@ -204,6 +219,22 @@ function CreateAndSubmitDialog({ isOpen, onClose, availableFiles, onSuccess }: C
           </div>
         </form>
       </div>
+
+      {/* Success Modal */}
+      <SuccessModal
+        isOpen={showSuccessModal}
+        onClose={handleSuccessModalClose}
+        title="Submission Successful"
+        message={modalMessage}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        isOpen={showErrorModal}
+        onClose={handleErrorModalClose}
+        title="Submission Failed"
+        message={modalMessage}
+      />
     </div>
   );
 }
@@ -214,6 +245,8 @@ export function SimpleSubmitterInterface({ className, currentFiles }: SimpleSubm
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [expandedSubmissions, setExpandedSubmissions] = useState<Set<string>>(new Set());
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     loadSubmissions();
@@ -275,7 +308,9 @@ export function SimpleSubmitterInterface({ className, currentFiles }: SimpleSubm
       document.body.removeChild(a);
     } catch (error) {
       console.error('Error downloading submission:', error);
-      alert('Error downloading submission');
+      const errorMsg = error instanceof Error ? error.message : 'Failed to download submission';
+      setErrorMessage(errorMsg);
+      setShowErrorModal(true);
     }
   };
 
@@ -433,6 +468,14 @@ export function SimpleSubmitterInterface({ className, currentFiles }: SimpleSubm
         onClose={() => setShowCreateDialog(false)}
         availableFiles={currentFiles}
         onSuccess={loadSubmissions}
+      />
+
+      {/* Error Modal for download errors */}
+      <ErrorModal
+        isOpen={showErrorModal}
+        onClose={() => setShowErrorModal(false)}
+        title="Error"
+        message={errorMessage}
       />
     </div>
   );

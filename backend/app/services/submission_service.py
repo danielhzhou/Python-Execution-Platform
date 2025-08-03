@@ -68,19 +68,36 @@ class SubmissionService:
                 mime_type = self._get_mime_type(file_data["name"])
                 
                 # Upload to Supabase Storage
-                result = self.supabase.storage.from_(self.bucket_name).upload(
-                    path=storage_path,
-                    file=file_content,
-                    file_options={
-                        "content-type": mime_type,
-                        "upsert": "true"
-                    }
-                )
-                
-                # Check if upload was successful
-                if not result:
-                    logger.error(f"Failed to upload file {file_data['name']}: No response")
-                    continue
+                try:
+                    result = self.supabase.storage.from_(self.bucket_name).upload(
+                        path=storage_path,
+                        file=file_content,
+                        file_options={
+                            "content-type": mime_type,
+                            "upsert": "true"
+                        }
+                    )
+                    
+                    # Check if upload was successful
+                    if not result:
+                        logger.error(f"Failed to upload file {file_data['name']}: No response")
+                        raise Exception(f"Failed to upload file {file_data['name']}")
+                        
+                except Exception as upload_error:
+                    error_msg = str(upload_error)
+                    logger.error(f"Failed to upload file {file_data['name']}: {error_msg}")
+                    
+                    # Parse specific Supabase errors
+                    if "413" in error_msg or "too large" in error_msg.lower():
+                        raise Exception(f"File '{file_data['name']}' is too large. Maximum file size is 50MB.")
+                    elif "401" in error_msg or "unauthorized" in error_msg.lower():
+                        raise Exception(f"Storage access denied. Please check your permissions.")
+                    elif "403" in error_msg or "forbidden" in error_msg.lower():
+                        raise Exception(f"Storage access forbidden. Please check bucket permissions.")
+                    elif "storage quota" in error_msg.lower() or "quota exceeded" in error_msg.lower():
+                        raise Exception(f"Storage quota exceeded. Please contact administrator.")
+                    else:
+                        raise Exception(f"Failed to upload file '{file_data['name']}': {error_msg}")
                 
                 # Create database record for this file
                 await db_service.create_submission_file(
