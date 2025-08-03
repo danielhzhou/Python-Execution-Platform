@@ -5,17 +5,11 @@ import { useEditorStore } from '../../stores/editorStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { Button } from '../ui/button';
 import { 
-  Menu, 
-  Play, 
-  Save, 
-  Upload, 
-  Download,
-  Settings,
-  User,
   LogOut,
   Code,
   Wifi,
-  WifiOff
+  WifiOff,
+  User
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -27,8 +21,8 @@ export function Header({ className }: HeaderProps) {
   const { 
     user, 
     currentContainer, 
-    isLoading,
-    error 
+    error,
+    logout
   } = useAppStore();
   
   const { isDirty } = useEditorStore();
@@ -159,33 +153,20 @@ export function Header({ className }: HeaderProps) {
           <div className="px-3 py-2 border-b border-border/50">
             <div className="text-sm font-medium">{user?.email?.split('@')[0] || 'User'}</div>
             <div className="text-xs text-muted-foreground">{user?.email || 'Anonymous User'}</div>
+            <div className="text-xs text-muted-foreground mt-1 capitalize">
+              Role: {user?.role || 'submitter'}
+            </div>
           </div>
           
           <div className="py-1">
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start h-8 px-3"
-            >
-              <User className="h-4 w-4 mr-2" />
-              Profile
-            </Button>
-            
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start h-8 px-3"
-            >
-              <Settings className="h-4 w-4 mr-2" />
-              Settings
-            </Button>
-            
-            <div className="border-t border-border/50 my-1" />
-            
-            <Button
-              variant="ghost"
-              size="sm"
               className="w-full justify-start h-8 px-3 text-red-600 hover:text-red-700 hover:bg-red-50"
+              onClick={async () => {
+                setShowUserMenu(false);
+                await logout();
+              }}
             >
               <LogOut className="h-4 w-4 mr-2" />
               Sign Out
