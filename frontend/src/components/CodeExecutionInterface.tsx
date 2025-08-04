@@ -20,6 +20,7 @@ interface CodeExecutionInterfaceProps {
 export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProps) {
   const { 
     isAuthenticated, 
+    user,
     currentFile,
     setError 
   } = useAppStore();
@@ -91,15 +92,19 @@ export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProp
   }, [currentContainer]);
 
   // Auto-create container when user is authenticated and containers are loaded
-  // Only attempt once per session
+  // Only attempt once per session, and only for submitters (not reviewers/admins)
   useEffect(() => {
+    const userRole = user?.role || 'submitter';
+    const needsContainer = userRole === 'submitter';
+    
     if (
       isAuthenticated && 
       isInitialized && 
+      needsContainer &&
       !currentContainer && 
       !hasAttemptedContainerCreation
     ) {
-      console.log('🚀 Auto-creating container for authenticated user...');
+      console.log('🚀 Auto-creating container for submitter user...');
       setHasAttemptedContainerCreation(true);
       
       // Add a small delay to ensure all auth-related state is settled
@@ -115,8 +120,10 @@ export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProp
       }, 1000);
       
       return () => clearTimeout(timer);
+    } else if (isAuthenticated && !needsContainer) {
+      console.log('👨‍💼 Reviewer/Admin user - no container needed');
     }
-  }, [isAuthenticated, isInitialized, currentContainer, hasAttemptedContainerCreation, createContainer]);
+  }, [isAuthenticated, isInitialized, user?.role, currentContainer, hasAttemptedContainerCreation, createContainer]);
 
   // Handle Run button click - execute code in the integrated terminal
   const handleRunCode = useCallback(async () => {
