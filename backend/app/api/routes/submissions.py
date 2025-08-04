@@ -438,6 +438,23 @@ async def get_approved_submissions(
         )
 
 
+@router.get("/rejected", response_model=List[dict])
+async def get_rejected_submissions(
+    current_user: User = Depends(require_reviewer)
+):
+    """Get list of rejected submissions with submitter info and review comments"""
+    try:
+        rejected_submissions = await submission_service.get_rejected_submissions()
+        return rejected_submissions
+        
+    except Exception as e:
+        logger.error(f"Error getting rejected submissions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get rejected submissions"
+        )
+
+
 @router.get("/{submission_id}/download")
 async def download_submission_files(
     submission_id: str,

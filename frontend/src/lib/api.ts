@@ -431,6 +431,10 @@ export const submissionApi = {
     return apiRequest('/submissions/approved')
   },
 
+  getRejectedSubmissions: (): Promise<ApiResponse<any[]>> => {
+    return apiRequest('/submissions/rejected')
+  },
+
   downloadSubmission: (submissionId: string): Promise<Response> => {
     const token = getAuthToken()
     return fetch(`${API_BASE_URL}/submissions/${submissionId}/download`, {

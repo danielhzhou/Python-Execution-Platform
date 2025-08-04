@@ -13,6 +13,7 @@ export function useContainer() {
     currentContainer,
     containers,
     isAuthenticated,
+    user,
     setCurrentContainer,
     addContainer,
     updateContainer,
@@ -346,40 +347,54 @@ export function useContainer() {
 
   // Load existing containers when user authenticates and auto-create if none exist
   // Only run once when authenticated and not yet initialized
+  // Only create containers for submitters (not reviewers/admins)
   useEffect(() => {
     if (isAuthenticated && !isInitialized) {
-      console.log('🔑 User authenticated, loading existing containers...');
+      const userRole = user?.role || 'submitter';
+      const needsContainer = userRole === 'submitter';
       
-      const initializeUserContainer = async () => {
-        try {
-          // First, load existing containers
-          await loadContainers();
-          
-          // Check if user has any running containers after loading
-          const response = await containerApi.list();
-          if (response.success && response.data) {
-            const runningContainers = response.data.filter(c => c.status === 'running');
+      console.log('🔑 User authenticated, checking container needs...', {
+        userRole,
+        needsContainer
+      });
+      
+      if (needsContainer) {
+        console.log('🔑 Submitter user - loading existing containers...');
+        
+        const initializeUserContainer = async () => {
+          try {
+            // First, load existing containers
+            await loadContainers();
             
-            if (runningContainers.length === 0) {
-              console.log('📦 No running containers found, creating one...');
-              await createContainer();
-            } else {
-              console.log(`✅ Found ${runningContainers.length} running container(s)`);
+            // Check if user has any running containers after loading
+            const response = await containerApi.list();
+            if (response.success && response.data) {
+              const runningContainers = response.data.filter(c => c.status === 'running');
+              
+              if (runningContainers.length === 0) {
+                console.log('📦 No running containers found, creating one...');
+                await createContainer();
+              } else {
+                console.log(`✅ Found ${runningContainers.length} running container(s)`);
+              }
             }
+          } catch (error) {
+            console.error('❌ Error initializing user container:', error);
+            // Don't set error here as it might be temporary
           }
-        } catch (error) {
-          console.error('❌ Error initializing user container:', error);
-          // Don't set error here as it might be temporary
-        }
-      };
+        };
+        
+        initializeUserContainer();
+      } else {
+        console.log('👨‍💼 Reviewer/Admin user - no container needed');
+      }
       
-      initializeUserContainer();
       setIsInitialized(true);
     } else if (!isAuthenticated && isInitialized) {
       // Reset initialization state when user logs out
       setIsInitialized(false);
     }
-  }, [isAuthenticated, isInitialized, loadContainers, createContainer]);
+  }, [isAuthenticated, isInitialized, user?.role, loadContainers, createContainer]);
 
   // Poll container status to detect changes and maintain connection health
   // Temporarily disabled to debug container state issues

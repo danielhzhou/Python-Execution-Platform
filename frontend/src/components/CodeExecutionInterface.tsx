@@ -97,6 +97,15 @@ export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProp
     const userRole = user?.role || 'submitter';
     const needsContainer = userRole === 'submitter';
     
+    console.log('🔍 Container creation check:', {
+      isAuthenticated,
+      isInitialized,
+      userRole,
+      needsContainer,
+      currentContainer: !!currentContainer,
+      hasAttemptedContainerCreation
+    });
+    
     if (
       isAuthenticated && 
       isInitialized && 

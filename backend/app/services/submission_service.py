@@ -337,26 +337,81 @@ class SubmissionService:
             return None
     
     async def get_approved_submissions(self) -> List[Dict[str, Any]]:
-        """Get list of approved submissions with submitter info"""
+        """Get list of approved submissions with submitter info and review comments"""
         try:
             submissions = await db_service.get_submissions_by_status(SubmissionStatus.APPROVED.value)
             result = []
             
             for submission in submissions:
                 submitter = await db_service.get_user(submission.submitter_id)
+                
+                # Get the approval review comment
+                reviews = await db_service.get_submission_reviews(submission.id)
+                approval_comment = ""
+                reviewer_email = "Unknown"
+                
+                for review in reviews:
+                    if review.status == "approved":
+                        approval_comment = review.comment
+                        reviewer = await db_service.get_user(review.reviewer_id)
+                        reviewer_email = reviewer.email if reviewer else "Unknown"
+                        break
+                
                 result.append({
                     "submission_id": submission.id,
                     "title": submission.title,
+                    "description": submission.description,
                     "submitter_email": submitter.email if submitter else "Unknown",
                     "submitter_id": submission.submitter_id,
                     "submitted_at": submission.submitted_at,
-                    "reviewed_at": submission.reviewed_at
+                    "reviewed_at": submission.reviewed_at,
+                    "reviewer_email": reviewer_email,
+                    "approval_comment": approval_comment
                 })
             
             return result
             
         except Exception as e:
             logger.error(f"Error getting approved submissions: {e}")
+            return []
+    
+    async def get_rejected_submissions(self) -> List[Dict[str, Any]]:
+        """Get list of rejected submissions with submitter info and review comments"""
+        try:
+            submissions = await db_service.get_submissions_by_status(SubmissionStatus.REJECTED.value)
+            result = []
+            
+            for submission in submissions:
+                submitter = await db_service.get_user(submission.submitter_id)
+                
+                # Get the rejection review comment
+                reviews = await db_service.get_submission_reviews(submission.id)
+                rejection_comment = ""
+                reviewer_email = "Unknown"
+                
+                for review in reviews:
+                    if review.status == "rejected":
+                        rejection_comment = review.comment
+                        reviewer = await db_service.get_user(review.reviewer_id)
+                        reviewer_email = reviewer.email if reviewer else "Unknown"
+                        break
+                
+                result.append({
+                    "submission_id": submission.id,
+                    "title": submission.title,
+                    "description": submission.description,
+                    "submitter_email": submitter.email if submitter else "Unknown",
+                    "submitter_id": submission.submitter_id,
+                    "submitted_at": submission.submitted_at,
+                    "reviewed_at": submission.reviewed_at,
+                    "reviewer_email": reviewer_email,
+                    "rejection_comment": rejection_comment
+                })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting rejected submissions: {e}")
             return []
 
 
