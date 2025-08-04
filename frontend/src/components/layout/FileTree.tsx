@@ -4,6 +4,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { fileApi } from '../../lib/api';
 import { CreateFileModal } from '../common/CreateFileModal';
 import { useOptimizedFileLoader } from '../../hooks/useOptimizedFileLoader';
+import { fileCache } from '../../lib/fileCache';
 
 import { 
   File, 
@@ -251,9 +252,34 @@ export function FileTree({ className }: { className?: string }) {
         throw new Error(typeof result.error === 'string' ? result.error : 'Failed to create file');
       }
 
-      // Refresh file tree and load the new file
+      // Pre-cache the file content we just created for instant access
+      if (currentContainer?.id) {
+        const language = filePath.endsWith('.py') ? 'python' : 
+                        filePath.endsWith('.js') ? 'javascript' :
+                        filePath.endsWith('.ts') ? 'typescript' :
+                        filePath.endsWith('.md') ? 'markdown' : 'plaintext';
+        
+        fileCache.set(currentContainer.id, filePath, template, language);
+        console.log('📦 Pre-cached newly created file:', filePath);
+      }
+
+      // Refresh file tree and load the new file with a small delay
       await fetchContainerFiles();
-      await loadFile(filePath);
+      
+      // Small delay to ensure file is available in the file system
+      setTimeout(async () => {
+        try {
+          await loadFile(filePath);
+        } catch (loadError) {
+          console.warn('Failed to load newly created file, retrying...', loadError);
+          // Retry once after another small delay
+          setTimeout(() => {
+            loadFile(filePath).catch(err => 
+              console.error('Failed to load file on retry:', err)
+            );
+          }, 500);
+        }
+      }, 200);
       
       console.log('✅ File created successfully:', filePath);
       
@@ -426,11 +452,14 @@ export function FileTree({ className }: { className?: string }) {
 
   // Memoize performance stats to prevent unnecessary re-renders
   const performanceStats = useMemo(() => {
-    if (cacheStats.hitRate > 0) {
-      return `Cache: ${cacheStats.hitRate}% hit rate, ${cacheStats.memoryUsage}`;
+    const cachedCount = currentContainer?.id ? 
+      fileCache.getCachedFiles(currentContainer.id).length : 0;
+    
+    if (cacheStats.hitRate > 0 || cachedCount > 0) {
+      return `Cache: ${cachedCount} files, ${cacheStats.hitRate}% hit rate, ${cacheStats.memoryUsage}`;
     }
-    return null;
-  }, [cacheStats.hitRate, cacheStats.memoryUsage]);
+    return cachedCount > 0 ? `Cache: ${cachedCount} files ready` : null;
+  }, [cacheStats.hitRate, cacheStats.memoryUsage, currentContainer?.id]);
 
   return (
     <div className={`flex flex-col h-full bg-[#252526] ${className}`}>

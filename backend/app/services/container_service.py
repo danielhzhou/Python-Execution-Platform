@@ -213,21 +213,6 @@ if __name__ == "__main__":
                     ["bash", "-c", f"cat > /workspace/main.py << 'EOF'\n{welcome_content}\nEOF"]
                 )
                 
-                # Create a requirements.txt file
-                requirements_content = '''# Add your Python package dependencies here
-# For example:
-# numpy==1.24.3
-# pandas==2.0.3
-# matplotlib==3.7.1
-# requests==2.31.0
-
-# Then install them using: pip install -r requirements.txt
-'''
-                
-                container.execute(
-                    ["bash", "-c", f"cat > /workspace/requirements.txt << 'EOF'\n{requirements_content}\nEOF"]
-                )
-                
                 # Create a simple README
                 readme_content = '''# Python Workspace
 
@@ -235,7 +220,6 @@ Welcome to your Python development environment!
 
 ## Files in this workspace:
 - `main.py` - Your main Python script (edit and run this)
-- `requirements.txt` - Python package dependencies
 - `README.md` - This file
 
 ## How to use:
@@ -256,6 +240,17 @@ Happy coding! 🐍
                 
                 logger.info("✅ Initial workspace files created successfully")
                 
+                # Cache initial files for instant access
+                try:
+                    await self._cache_initial_files(session.id, {
+                        '/workspace/main.py': welcome_content,
+                        '/workspace/README.md': readme_content
+                    })
+                    logger.info("🚀 Initial files cached for instant access")
+                except Exception as cache_error:
+                    logger.warning(f"⚠️ Failed to cache initial files: {cache_error}")
+                    # Don't fail container creation if caching fails
+                
             except Exception as e:
                 logger.warning(f"⚠️  Failed to create initial files: {e}")
                 # Don't fail container creation if file creation fails
@@ -263,11 +258,8 @@ Happy coding! 🐍
             # Setup initial Python environment in container
             logger.info("🐍 Setting up Python environment...")
             try:
-                # Create a simple Python test file and ensure Python is working
-                container.execute([
-                    "sh", "-c", 
-                    "echo 'print(\"Python environment ready!\")' > /workspace/test.py && python3 /workspace/test.py"
-                ])
+                # Test Python environment without creating files
+                result = container.execute(["python3", "-c", "print('Python environment ready!')"])
                 logger.info("✅ Python environment verified")
             except Exception as e:
                 logger.warning(f"Python environment setup warning: {e}")
@@ -620,6 +612,36 @@ Happy coding! 🐍
                 break
             except Exception as e:
                 logger.error(f"Error in container cleanup task: {e}")
+
+    async def _cache_initial_files(self, container_id: str, files: Dict[str, str]):
+        """Cache initial files to the frontend cache for instant access"""
+        try:
+            # Import here to avoid circular imports
+            from app.services.websocket_service import websocket_service
+            
+            # Send initial files to all connected clients for this container
+            # This will be picked up by the frontend and cached automatically
+            for file_path, content in files.items():
+                cache_message = {
+                    "type": "initial_file_cache",
+                    "data": {
+                        "container_id": container_id,
+                        "file_path": file_path,
+                        "content": content,
+                        "language": "python" if file_path.endswith('.py') else "markdown",
+                        "size": len(content),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                }
+                
+                # Broadcast to all sessions for this container
+                await websocket_service.manager._broadcast_to_session(container_id, cache_message)
+                
+            logger.info(f"📦 Cached {len(files)} initial files for container {container_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to cache initial files: {e}")
+            # Don't raise - this is a performance optimization, not critical
 
 
 # Global container service instance

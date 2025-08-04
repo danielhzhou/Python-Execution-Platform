@@ -69,6 +69,7 @@ export type WebSocketMessage =
   | { type: 'disconnection'; data: string }
   | { type: 'filesystem_change'; data: { command_type: string; command: string; timestamp: string } }
   | { type: 'directory_change'; data: { current_directory: string; timestamp: string } }
+  | { type: 'initial_file_cache'; data: { container_id: string; file_path: string; content: string; language: string; size: number; timestamp: string } }
   | { type: 'error'; data?: { message: string }; message?: string };
 
 // API response types

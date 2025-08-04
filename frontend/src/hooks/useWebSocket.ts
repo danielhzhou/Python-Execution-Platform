@@ -185,6 +185,26 @@ export function useWebSocket() {
         }
       });
 
+      // Handle initial file cache events
+      wsRef.current.on('initial_file_cache', (message: WebSocketMessage) => {
+        if (message.type === 'initial_file_cache' && message.data) {
+          console.log('📦 Initial file cache received:', message.data.file_path);
+          
+          // Dispatch event for file cache system to pick up
+          const event = new CustomEvent('initial-file-cache', {
+            detail: {
+              containerId: message.data.container_id,
+              filePath: message.data.file_path,
+              content: message.data.content,
+              language: message.data.language,
+              size: message.data.size,
+              timestamp: message.data.timestamp
+            }
+          });
+          window.dispatchEvent(event);
+        }
+      });
+
       wsRef.current.on('error', (message: WebSocketMessage) => {
         if (message.type === 'error') {
           const errorMsg = message.message || 'WebSocket error';
