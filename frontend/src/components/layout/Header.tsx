@@ -25,6 +25,9 @@ export function Header({ className }: HeaderProps) {
     logout
   } = useAppStore();
   
+  // Check if user is a reviewer to hide development-related status indicators
+  const isReviewer = user?.role === 'reviewer' || user?.role === 'admin';
+  
   const { isDirty } = useEditorStore();
   const { isConnected } = useTerminalStore();
   
@@ -74,51 +77,57 @@ export function Header({ className }: HeaderProps) {
           </span>
         </div>
         
-        {/* Compact Status Bar */}
-        <div className="flex items-center gap-4 text-xs">
-          {currentContainer && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50">
-              <div className={cn(
-                'w-1.5 h-1.5 rounded-full',
-                currentContainer.status === 'running' ? 'bg-emerald-500' : 
-                currentContainer.status === 'stopped' ? 'bg-red-500' : 
-                'bg-amber-500'
-              )} />
-              <span className="text-muted-foreground font-medium">
-                {currentContainer.status === 'running' ? 'Ready' : 'Starting...'}
-              </span>
-            </div>
-          )}
-          
-          {isDirty && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/20">
-              <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span className="font-medium">Unsaved Changes</span>
-            </div>
-          )}
-        </div>
+        {/* Compact Status Bar - Only show for non-reviewers */}
+        {!isReviewer && (
+          <div className="flex items-center gap-4 text-xs">
+            {currentContainer && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50">
+                <div className={cn(
+                  'w-1.5 h-1.5 rounded-full',
+                  currentContainer.status === 'running' ? 'bg-emerald-500' : 
+                  currentContainer.status === 'stopped' ? 'bg-red-500' : 
+                  'bg-amber-500'
+                )} />
+                <span className="text-muted-foreground font-medium">
+                  {currentContainer.status === 'running' ? 'Ready' : 'Starting...'}
+                </span>
+              </div>
+            )}
+            
+            {isDirty && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="font-medium">Unsaved Changes</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Right Section - User & Actions */}
       <div className="flex items-center gap-3">
-        {/* Quick Status */}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div className={cn(
-            'flex items-center gap-1',
-            isConnected ? 'text-emerald-600' : 'text-red-600'
-          )}>
-            {isConnected ? (
-              <Wifi className="h-3 w-3" />
-            ) : (
-              <WifiOff className="h-3 w-3" />
-            )}
-            <span className="font-medium">
-              {isConnected ? 'Connected' : 'Offline'}
-            </span>
-          </div>
-        </div>
-        
-        <div className="w-px h-4 bg-border" />
+        {/* Quick Status - Only show for non-reviewers */}
+        {!isReviewer && (
+          <>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className={cn(
+                'flex items-center gap-1',
+                isConnected ? 'text-emerald-600' : 'text-red-600'
+              )}>
+                {isConnected ? (
+                  <Wifi className="h-3 w-3" />
+                ) : (
+                  <WifiOff className="h-3 w-3" />
+                )}
+                <span className="font-medium">
+                  {isConnected ? 'Connected' : 'Offline'}
+                </span>
+              </div>
+            </div>
+            
+            <div className="w-px h-4 bg-border" />
+          </>
+        )}
         
         {/* User Menu */}
         <div className="relative">
