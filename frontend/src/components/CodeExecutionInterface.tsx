@@ -3,7 +3,6 @@ import { FileTree } from './layout/FileTree';
 import { ResizablePanel } from './layout/ResizablePanel';
 import { MonacoEditor } from './editor/MonacoEditor';
 import { SaveButton } from './editor/SaveButton';
-import { SaveStatusIndicator } from './editor/SaveStatusIndicator';
 import { FileTabIndicator } from './editor/FileTabIndicator';
 import { Terminal } from './terminal/Terminal';
 import { SubmissionDialog } from './common/SubmissionDialog';
@@ -11,8 +10,6 @@ import { ErrorBoundary, MonacoErrorBoundary, TerminalErrorBoundary } from './com
 import { SubmissionModal } from './submissions/SubmissionModal';
 import { useAppStore } from '../stores/appStore';
 import { useContainer } from '../hooks/useContainer';
-import { useEditorStore } from '../stores/editorStore';
-import { useTerminalStore } from '../stores/terminalStore';
 import { useAutoSave } from '../hooks/useAutoSave';
 import { fileApi } from '../lib/api';
 
@@ -137,8 +134,8 @@ export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProp
       // Small delay to ensure file is saved
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Run the Python file
-      const command = `python ${currentFile.name}`;
+      // Run the Python file with full path
+      const command = `python3 ${currentFile.path}\n`;
       console.log('🏃‍♂️ Executing command:', command);
       terminalSendCommand(command);
       
