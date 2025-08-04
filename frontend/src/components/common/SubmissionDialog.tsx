@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { useEditorStore } from '../../stores/editorStore';
-import { projectApi } from '../../lib/api';
+import { submissionApi } from '../../lib/api';
 import {
   Dialog,
   DialogContent,
@@ -38,11 +38,11 @@ export function SubmissionDialog({ open, onOpenChange }: SubmissionDialogProps) 
     setLoading(true);
 
     try {
-      const response = await projectApi.submit(
-        currentContainer.id,
-        title.trim(),
-        description.trim() || undefined
-      );
+      const response = await submissionApi.createSubmission({
+        project_id: currentContainer.id,
+        title: title.trim(),
+        description: description.trim() || undefined
+      });
 
       if (response.success) {
         // Reset form

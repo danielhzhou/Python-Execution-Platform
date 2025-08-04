@@ -3,7 +3,6 @@ import { FileTree } from './layout/FileTree';
 import { ResizablePanel } from './layout/ResizablePanel';
 import { MonacoEditor } from './editor/MonacoEditor';
 import { SaveButton } from './editor/SaveButton';
-import { SaveStatusIndicator } from './editor/SaveStatusIndicator';
 import { FileTabIndicator } from './editor/FileTabIndicator';
 import { Terminal } from './terminal/Terminal';
 import { SubmissionDialog } from './common/SubmissionDialog';
@@ -11,8 +10,6 @@ import { ErrorBoundary, MonacoErrorBoundary, TerminalErrorBoundary } from './com
 import { SubmissionModal } from './submissions/SubmissionModal';
 import { useAppStore } from '../stores/appStore';
 import { useContainer } from '../hooks/useContainer';
-import { useEditorStore } from '../stores/editorStore';
-import { useTerminalStore } from '../stores/terminalStore';
 import { useAutoSave } from '../hooks/useAutoSave';
 import { fileApi } from '../lib/api';
 
@@ -23,6 +20,7 @@ interface CodeExecutionInterfaceProps {
 export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProps) {
   const { 
     isAuthenticated, 
+    user,
     currentFile,
     setError 
   } = useAppStore();
@@ -94,15 +92,28 @@ export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProp
   }, [currentContainer]);
 
   // Auto-create container when user is authenticated and containers are loaded
-  // Only attempt once per session
+  // Only attempt once per session, and only for submitters (not reviewers/admins)
   useEffect(() => {
+    const userRole = user?.role || 'submitter';
+    const needsContainer = userRole === 'submitter';
+    
+    console.log('🔍 Container creation check:', {
+      isAuthenticated,
+      isInitialized,
+      userRole,
+      needsContainer,
+      currentContainer: !!currentContainer,
+      hasAttemptedContainerCreation
+    });
+    
     if (
       isAuthenticated && 
       isInitialized && 
+      needsContainer &&
       !currentContainer && 
       !hasAttemptedContainerCreation
     ) {
-      console.log('🚀 Auto-creating container for authenticated user...');
+      console.log('🚀 Auto-creating container for submitter user...');
       setHasAttemptedContainerCreation(true);
       
       // Add a small delay to ensure all auth-related state is settled
@@ -118,8 +129,10 @@ export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProp
       }, 1000);
       
       return () => clearTimeout(timer);
+    } else if (isAuthenticated && !needsContainer) {
+      console.log('👨‍💼 Reviewer/Admin user - no container needed');
     }
-  }, [isAuthenticated, isInitialized, currentContainer, hasAttemptedContainerCreation, createContainer]);
+  }, [isAuthenticated, isInitialized, user?.role, currentContainer, hasAttemptedContainerCreation, createContainer]);
 
   // Handle Run button click - execute code in the integrated terminal
   const handleRunCode = useCallback(async () => {
@@ -137,8 +150,8 @@ export function CodeExecutionInterface({ className }: CodeExecutionInterfaceProp
       // Small delay to ensure file is saved
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Run the Python file
-      const command = `python ${currentFile.name}`;
+      // Run the Python file with full path
+      const command = `python3 ${currentFile.path}\n`;
       console.log('🏃‍♂️ Executing command:', command);
       terminalSendCommand(command);
       
